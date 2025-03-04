@@ -53,6 +53,7 @@
 #include "object_wrapper.h"
 #include "fieldsolver/gridGlue.hpp"
 #include "fieldsolver/derivatives.hpp"
+#include "hermite/vdf_tools.h"
 
 #ifdef CATCH_FPE
 #include <fenv.h>
@@ -858,6 +859,15 @@ int main(int argn,char* args[]) {
          wallTimeRestartCounter <= P::exitAfterRestarts) {
       
       addTimedBarrier("barrier-loop-start");
+
+      auto local_cells=getLocalCells();
+      for (const auto& c:local_cells){
+         SpatialCell* sc=mpiGrid[c]; 
+         auto vdf=HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, 0,1);
+         std::string fname = "vdf_" + std::to_string(c) + ".bin";
+         vdf.save_to_file(fname.c_str());
+      }
+
       
       phiprof::Timer ioTimer {"IO"};
 
