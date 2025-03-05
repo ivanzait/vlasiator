@@ -310,7 +310,7 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
  return f;
  }
 
- HERMITE::OrderedVDF hermite_transform_back_and_forth(HERMITE::OrderedVDF vdfdata){
+ HERMITE::OrderedVDF HERMITE::hermite_transform_back_and_forth(HERMITE::OrderedVDF vdfdata){
    int order=7; // define max order of the hermite decomposition
    // std::string fileName="vdf_41.bin"; // load vlsv vdf from binary
    // VDFdata data = read_vdf_bin(fileName);

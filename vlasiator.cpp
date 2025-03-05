@@ -864,8 +864,9 @@ int main(int argn,char* args[]) {
       for (const auto& c:local_cells){
          SpatialCell* sc=mpiGrid[c]; 
          auto vdf=HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, 0,1);
+         HERMITE::OrderedVDF vdf_reconstructed = hermite_transform_back_and_forth(vdf);
          std::string fname = "vdf_" + std::to_string(c) + ".bin";
-         vdf.save_to_file(fname.c_str());
+         vdf_reconstructed.save_to_file(fname.c_str());
       }
 
       
