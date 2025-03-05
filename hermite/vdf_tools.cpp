@@ -14,6 +14,8 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
    const size_t total_blocks = blockContainer.size();
    const Real* blockParams = sc->get_block_parameters(popID);
 
+   Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
+
    // xmin,ymin,zmin,xmax,ymax,zmax;
    std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
                              std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
@@ -98,7 +100,12 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
                         for (int off_x = 0; off_x <= max_off; off_x++) {
                            const size_t index = (bbox_i + off_x) * (ny * nz) + (bbox_j + off_y) * nz + (bbox_k + off_z);
                            if (index < vspace.size()) {
-                              vspace.at(index) = vdf_data[cellIndex(i, j, k)];
+                              if (vdf_data[cellIndex(i, j, k)]<sparse){
+                                 vspace.at(index)=0.0;
+                                } else {
+                                 vspace.at(index) = vdf_data[cellIndex(i, j, k)];
+                                }
+
                            }
                         }
                      }
@@ -129,7 +136,7 @@ void dump_vdf_to_binary_file(const char* filename,uint popID, CellID cid,
 }
 
 
-/////////////////////// Hermite Decomposition  \\\\\\\\\\\\\\\\\\\\\\
+//  Hermite decomposition functions are below 
 
 // factorial
 unsigned long long factorial(int n) {
@@ -156,12 +163,12 @@ std::vector<std::vector<float>> hermite(std::vector<float>& x, int order){
    // H0 = 1, H1 = 2x
    // base function with Gauss weights: H_n * exp(-0.5*v^2)
      std::vector<std::vector<float>> hp(order, std::vector<float>(x.size()) ) ;
-     for(int i=0; i<x.size(); ++i){
+     for(size_t i=0; i<x.size(); ++i){
        hp[0][i] = 1 * std::exp(-0.5*x[i]*x[i]) ;       //Generate first two polynomilas manually
        hp[1][i] = 2*x[i] * std::exp(-0.5*x[i]*x[i]);
      }
      for(int n=2; n<order; ++n){  // Then use recurrent chain
-       for(int i=0; i<x.size(); ++i){
+       for(size_t i=0; i<x.size(); ++i){
              //  std::cout <<"xi" << x[i] << std::endl;
          hp[n][i] = (2*x[i]*hp[n-1][i] - 2*(n-1)*hp[n-2][i] ) ;
        }
@@ -182,7 +189,7 @@ std::vector<std::vector<float>> get_hermite_x(HERMITE::OrderedVDF data, int orde
    std::vector<std::vector<float>> hermite_x = hermite(x, order);
    for(int n=0; n<order; ++n){
      float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(int i=0; i < x.size(); ++i){
+     for(size_t i=0; i < x.size(); ++i){
        hermite_x[n][i] /= norm_const;
     //   std::cout << "herm" << hermite_x[n][i] << std::endl;
      }
@@ -198,7 +205,7 @@ std::vector<std::vector<float>> get_hermite_x(HERMITE::OrderedVDF data, int orde
    std::vector<std::vector<float>> hermite_y = hermite(y, order);
    for(int n=0; n<order; ++n){
      float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(int i=0; i < y.size(); ++i){
+     for(size_t i=0; i < y.size(); ++i){
        hermite_y[n][i] *= 1/norm_const;
      }
    }
@@ -213,7 +220,7 @@ std::vector<std::vector<float>> get_hermite_x(HERMITE::OrderedVDF data, int orde
    std::vector<std::vector<float>> hermite_z = hermite(z, order);
    for(int n=0; n<order; ++n){
      float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(int i=0; i < z.size(); ++i){
+     for(size_t i=0; i < z.size(); ++i){
        hermite_z[n][i] *= 1/norm_const;
      }
    }
@@ -238,9 +245,9 @@ std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
    std::vector<float> x = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
    std::vector<float> y = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
    std::vector<float> z = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
-   for(int i=0; i< data.shape[0]; ++i){
-     for(int j=0; j< data.shape[1]; ++j){
-       for(int k=0; k< data.shape[2]; ++k){
+   for(size_t i=0; i< data.shape[0]; ++i){
+     for(size_t j=0; j< data.shape[1]; ++j){
+       for(size_t k=0; k< data.shape[2]; ++k){
          index = i*data.shape[2]*data.shape[1] + j*data.shape[1] + k;
          sum += data.vdf_vals[index] * (x[i]*x[i]+y[j]*y[j]+z[k]*z[k]);
          weight += data.vdf_vals[index];
@@ -268,9 +275,9 @@ std::vector<float> hermite_spectra_3d(HERMITE::OrderedVDF data, int order, float
          hermite_index = nx*(order)*(order)+ny*(order)+nz;
          //loop over vspace   
          sum=0;
-         for(int ix=0; ix<data.shape[0]; ++ix){
-           for(int iy=0; iy<data.shape[1]; ++iy){
-             for(int iz=0; iz<data.shape[2]; ++iz){
+         for(size_t ix=0; ix<data.shape[0]; ++ix){
+           for(size_t iy=0; iy<data.shape[1]; ++iy){
+             for(size_t iz=0; iz<data.shape[2]; ++iz){
                vspace_index=ix*(data.shape[2])*(data.shape[1])+iy*(data.shape[2])+iz;
                sum+=data.vdf_vals[vspace_index]*hermite_x[nx][ix]*hermite_y[ny][iy]*hermite_z[nz][iz]*dv*dv*dv;
              }
@@ -290,16 +297,16 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
    std::vector<std::vector<float>> hermite_y = get_hermite_y(data, order, vth, u);
    std::vector<std::vector<float>> hermite_z = get_hermite_z(data, order, vth, u);
    float dv = (data.v_limits[3]-data.v_limits[0]) / (data.shape[0]-1);
-   for (int vx=0; vx<data.shape[0]; ++vx){
-     for (int vy=0; vy<data.shape[1]; ++vy){
-       for (int vz=0; vz<data.shape[2]; ++vz){
+   for (size_t vx=0; vx<data.shape[0]; ++vx){
+     for (size_t vy=0; vy<data.shape[1]; ++vy){
+       for (size_t vz=0; vz<data.shape[2]; ++vz){
          int ind = vx*data.shape[1]*data.shape[2] + vy*data.shape[2] + vz;
          float sum = 0.0f;
          for(int nx=0; nx<order; ++nx){
            for(int ny=0; ny<order; ++ny){
              for(int nz=0; nz<order; ++nz){
                int n = nx*(order)*(order) + ny*(order) + nz;
-               sum += spectra[n]*hermite_x[nx][vx]*hermite_y[ny][vy]*hermite_z[nz][vz]/dv/dv/dv;
+               sum += spectra[n]*hermite_x[nx][vx]*hermite_y[ny][vy]*hermite_z[nz][vz];
              }
            }
          }
