@@ -59,9 +59,10 @@ struct VCoords {
 };
 
 
-
 OrderedVDF extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( SpatialCell* sc, uint popID,int zoom);
 
 OrderedVDF hermite_transform_back_and_forth(OrderedVDF vdfdata);
+
+int overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf);
 
 }

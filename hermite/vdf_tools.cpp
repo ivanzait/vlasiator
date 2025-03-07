@@ -91,7 +91,12 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
                // Averaging
                if (ratio >= 1.0) {
                   const size_t index = bbox_i * (ny * nz) + bbox_j * nz + bbox_k;
-                  vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
+                  if (vdf_data[cellIndex(i, j, k)]<sparse){
+                        vspace.at(index)=0.0;
+                     } else {                        
+                        vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;                         
+                     }                     
+                  //vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio; // that my sh**
                } else {
                   // Same value in all bins
                   int max_off = 1 / ratio;
@@ -103,9 +108,8 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
                               if (vdf_data[cellIndex(i, j, k)]<sparse){
                                  vspace.at(index)=0.0;
                                 } else {
-                                 vspace.at(index) = vdf_data[cellIndex(i, j, k)];
+                                 vspace.at(index) = vdf_data[cellIndex(i, j, k)]; //it was only this thing here without sparcity
                                 }
-
                            }
                         }
                      }
@@ -121,6 +125,11 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
    for (auto it = ignore_list.begin(); it != ignore_list.end(); ) {
       ignored.push_back(std::move(ignore_list.extract(it++).value()));
    }
+ 
+   for (uint i=0; i<vspace.size(); ++i){
+      vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(0.1f * sparse))) -std::log10(0.1f * sparse);
+   }
+   
 
    return HERMITE::OrderedVDF{.blocks_to_ignore=ignored,.sparse_vdf_bytes=total_blocks*WID*WID*WID*sizeof(Realf),.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
 }
@@ -317,8 +326,9 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
  return f;
  }
 
+
  HERMITE::OrderedVDF HERMITE::hermite_transform_back_and_forth(HERMITE::OrderedVDF vdfdata){
-   int order=7; // define max order of the hermite decomposition
+   int order=15; // define max order of the hermite decomposition
    // std::string fileName="vdf_41.bin"; // load vlsv vdf from binary
    // VDFdata data = read_vdf_bin(fileName);
    float vth = get_thermal_velocity(vdfdata);
@@ -335,4 +345,47 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
    // data.save_to_file(fileName_rec.c_str());
  
    return vdfdata;
+}
+
+int HERMITE::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf) {
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   const Real* blockParams = sc->get_block_parameters(popID);
+   Realf* data = blockContainer.getData();
+   Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
+
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      Realf* vdf_data = &data[n * WID3];
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const Real dvx = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVX];
+               const Real dvy = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVY];
+               const Real dvz = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVZ];
+               const std::size_t nx = std::ceil((vdf.v_limits[3] - vdf.v_limits[0]) / dvx);
+               const std::size_t ny = std::ceil((vdf.v_limits[4] - vdf.v_limits[1]) / dvy);
+               const std::size_t nz = std::ceil((vdf.v_limits[5] - vdf.v_limits[2]) / dvz);
+               const Real vx = bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX];
+               const Real vy = bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY];
+               const Real vz = bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ];
+               const size_t bbox_i = std::min(static_cast<size_t>(std::floor((vx - vdf.v_limits[0]) / dvx)), nx - 1);
+               const size_t bbox_j = std::min(static_cast<size_t>(std::floor((vy - vdf.v_limits[1]) / dvy)), ny - 1);
+               const size_t bbox_k = std::min(static_cast<size_t>(std::floor((vz - vdf.v_limits[2]) / dvz)), nz - 1);
+                    const size_t index = bbox_i * (ny * nz) + bbox_j * nz + bbox_k;
+                 // vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
+
+               vdf_data[cellIndex(i, j, k)] = 0.1f*sparse * std::pow(10,vdf.vdf_vals.at(index));
+
+               // for (uint i=0; i<vspace.size(); ++i){
+               //    vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(0.1f * sparse))) -std::log10(0.1f * sparse);
+               // }
+            
+
+            }
+         }
+      }
+   } // over blocks
+   return 0;
 }
