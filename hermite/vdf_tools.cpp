@@ -1,8 +1,14 @@
-#include "../object_wrapper.h"
-#include "../spatial_cell_wrapper.hpp"
-#include "../velocity_blocks.h"
+// #include "../spatial_cells/velocity_mesh_cpu.h"
+// #include "../spatial_cells/velocity_block_container.h"
 #include <array>
 #include "vdf_tools.h"
+#include "../object_wrapper.h"
+
+#include "../spatial_cells/spatial_cell_cpu.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
+#include "../spatial_cells/velocity_block_container.h"
+
+//using namespace vmesh;
 
 HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( SpatialCell* sc, uint popID,
                                                                                        int zoom) {

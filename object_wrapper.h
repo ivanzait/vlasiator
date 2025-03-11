@@ -20,45 +20,39 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef OBJECT_WRAPPER_H
-#define OBJECT_WRAPPER_H
-
-// Forward declarations (only possible for classes for which we don't need to know the size)
-namespace spatial_cell{
-   class SpatialCell;
-}
-namespace projects {
-   class Project;
-}
-
-#include <vector>
-
-#include "definitions.h"
-#ifndef USE_GPU
-#include "object_factory.h"
-#endif
-
-#include "particle_species.h"
-#include "projects/project.h"
-#include "sysboundary/sysboundary.h"
-
-struct ObjectWrapper {
-   ObjectWrapper() { }
-
-   std::vector<species::Species> particleSpecies;           /**< Parameters for all particle species.*/
-   projects::Project*                    project;           /**< Simulated project.*/
-   SysBoundary sysBoundaryContainer;                        /**< Container for sysboundaries.*/
-
-   bool addParameters();                                    /**< Add config file parameters for objects held in this wrapper */
-   bool addPopulationParameters();                          /**< After parsing the names of populations, create parameters for each of them */
-   bool getPopulationParameters();                          /**< Use parsed config file parameters for objects held in this wrapper */
-
- private:
-   ObjectWrapper(const ObjectWrapper& ow);
-   ObjectWrapper& operator=(const ObjectWrapper& ow);
-};
-
-// Currently defined in vlasiator.cpp
-ObjectWrapper& getObjectWrapper();
-
-#endif
+ #ifndef OBJECT_WRAPPER_H
+ #define OBJECT_WRAPPER_H
+ 
+ #include <vector>
+ 
+ #include "definitions.h"
+ #include "item_storage.h"
+ #include "object_factory.h"
+ #include "vamr_refinement_criteria.h"
+ #include "particle_species.h"
+ #include "projects/project.h"
+ #include "velocity_mesh_parameters.h"
+ #include "sysboundary/sysboundary.h"
+ 
+ struct ObjectWrapper {
+    ObjectWrapper() { }
+ 
+    ObjectFactory<vamr_ref_criteria::Base> vamrVelRefCriteria; /**< Factory for all known VAMR refinement criteria.*/
+    std::vector<species::Species> particleSpecies;           /**< Parameters for all particle species.*/
+    projects::Project*                    project;           /**< Simulated project.*/
+    std::vector<vmesh::MeshParameters> velocityMeshes;       /**< Parameters for velocity mesh(es).*/
+    SysBoundary sysBoundaryContainer;                        /**< Container for sysboundaries.*/
+ 
+    bool addParameters();                                    /**< Add config file parameters for objects held in this wrapper */
+    bool addPopulationParameters();                          /**< After parsing the names of populations, create parameters for each of them */
+    bool getParameters();                                    /**< Use parsed config file parameters for objects held in this wrapper */
+ 
+  private:
+    ObjectWrapper(const ObjectWrapper& ow);
+    ObjectWrapper& operator=(const ObjectWrapper& ow);
+ };
+ 
+ // Currently defined in vlasiator.cpp
+ ObjectWrapper& getObjectWrapper();
+ 
+ #endif

@@ -7,7 +7,18 @@
 #include <fstream>
 #include "../definitions.h"
 #include <iostream>
-#include "../spatial_cell_cpu.hpp"
+#include "../object_wrapper.h"
+
+//#include "../spatial_cells/spatial_cell_wrapper.hpp"
+//#include "../spatial_cells/spatial_cell_cpu.hpp"
+
+#include "../spatial_cells/spatial_cell_cpu.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
+#include "../spatial_cells/velocity_block_container.h"
+
+
+// #include "../spatial_cells/velocity_block_container.h"
+// #include "../spatial_cells/velocity_mesh_cpu.h
 namespace HERMITE {
 
    struct OrderedVDF {

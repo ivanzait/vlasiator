@@ -41,22 +41,22 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 #include <phiprof.hpp>
 #include <tuple>
 
-#include "../memoryallocation.h"
-#include "../common.h"
-#include "../parameters.h"
-#include "../definitions.h"
+#include "memoryallocation.h"
+#include "common.h"
+#include "parameters.h"
+#include "definitions.h"
 
 #ifndef VAMR
-   #include "../velocity_mesh_old.h"
+   #include "velocity_mesh_old.h"
 #else
    #include "velocity_mesh_amr.h"
 #endif
 
-#include "../vamr_refinement_criteria.h"
-#include "../velocity_blocks.h"
+#include "vamr_refinement_criteria.h"
+#include "velocity_blocks.h"
 #include "velocity_block_container.h"
 
-#include "../logger.h"
+#include "logger.h"
 extern Logger logFile;
 
 #ifndef NDEBUG
