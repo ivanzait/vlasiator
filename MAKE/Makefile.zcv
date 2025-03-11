@@ -1,0 +1,70 @@
+CMP = /opt/homebrew/opt/llvm/bin/clang++
+LNK = /opt/homebrew/opt/llvm/bin/clang++
+
+#======== Vectorization ==========
+#Set vector backend type for vlasov solvers, sets precision and length.
+#NOTE this has to have the same precision as the distribution function define (DISTRIBUTION_FP_PRECISION)
+#Options:
+# AVX:      VEC4D_AGNER, VEC4F_AGNER, VEC8F_AGNER
+# AVX512:   VEC8D_AGNER, VEC16F_AGNER
+# Fallback: VEC_FALLBACK_GENERIC
+
+ifeq ($(DISTRIBUTION_FP_PRECISION),SPF)
+#Single-precision
+        VECTORCLASS = VEC_FALLBACK_GENERIC
+else
+#Double-precision
+        VECTORCLASS = VEC_FALLBACK_GENERIC
+endif
+
+#===== Vector Lengths ====
+# Default for VEC_FALLBACK_GENERIC is WID=4, VECL=8
+WID=4
+VECL=8
+
+#======== PAPI ==========
+#Add PAPI_MEM define to use papi to report memory consumption?
+#CXXFLAGS +=  -DPAPI_MEM   # Papi does not work on MacOS, see https://stackoverflow.com/questions/69531604/installing-papi-on-macos
+
+PAPI_FLAG =
+
+#======= Compiler and compilation flags =========
+
+FLAGS =
+
+CXXFLAGS = -O3   -funroll-loops -std=c++20 -fopenmp -W -Wall -Wno-unused -Wno-unused-parameter -Wno-missing-braces
+testpackage: CXXFLAGS = -g -ggdb -O2 -fopenmp -funroll-loops -std=c++20  -mno-avx -mno-fma -fno-unsafe-math-optimizations
+
+MATHFLAGS = -ffast-math -fno-finite-math-only
+testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
+
+# OpenMPI
+LIB_MPI = -L/opt/homebrew/lib -lmpi
+CXXFLAGS += -I/opt/homebrew/include
+
+# OpenMP (LLVM version)
+LDFLAGS += -L/opt/homebrew/Cellar/llvm/19.1.7_1/lib -lomp
+CXXFLAGS += -I/opt/homebrew/Cellar/llvm/19.1.7_1/include
+
+#======== Libraries ===========
+
+LIBRARY_PREFIX = /Users/ivanzait/Desktop/Vlasiator/vlsv_libs
+
+INC_BOOST = -I/opt/homebrew/include
+LIB_BOOST = -L/opt/homebrew/lib -lboost_program_options
+
+INC_ZOLTAN = -I/Users/ivanzait/Desktop/Vlasiator/vlsv_libs/zoltan_inst/include
+LIB_ZOLTAN = -L/Users/ivanzait/Desktop/Vlasiator/vlsv_libs/zoltan_inst/lib -lzoltan
+
+INC_JEMALLOC = -I$(LIBRARY_PREFIX)/jemalloc-5.3.0/include
+LIB_JEMALLOC = -L$(LIBRARY_PREFIX)/jemalloc-5.3.0/lib/ -ljemalloc
+
+INC_VLSV = -I$(LIBRARY_PREFIX)/vlsv
+LIB_VLSV = -L$(LIBRARY_PREFIX)/vlsv -lvlsv
+
+INC_EIGEN = -isystem ./submodules/eigen/
+INC_VECTORCLASS = -isystem ./submodules/vectorclass/ -isystem ./submodules/vectorclass-addon/vector3d/
+
+LIB_PROFILE = -L$(LIBRARY_PREFIX)/phiprof/lib -lphiprof
+INC_PROFILE = -I$(LIBRARY_PREFIX)/phiprof/include
+
