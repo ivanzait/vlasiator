@@ -127,7 +127,7 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
    }
  
    for (uint i=0; i<vspace.size(); ++i){
-      vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(0.1f * sparse))) -std::log10(0.1f * sparse);
+      vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(sparse))) - std::log10(sparse);
    }
    
 
@@ -235,36 +235,72 @@ std::vector<std::vector<float>> get_hermite_x(HERMITE::OrderedVDF data, int orde
    }
    return hermite_z;
  }
+ 
+ 
 
-
-//get drift velocity from VDFdata structure: <-- Just patch
+ //get drift velocity from VDFdata structure: <-- Proper
 std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
+   
    std::vector<float> u(3);
-   u[0] =0.5*( data.v_limits[3] + data.v_limits[0] );
-   u[1] =0.5*( data.v_limits[4] + data.v_limits[1] );
-   u[2] =0.5*( data.v_limits[5] + data.v_limits[2] );
+   std::vector<float> vx = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
+   std::vector<float> vy = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
+   std::vector<float> vz = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
+   float n = 0;
+   
+   float dv = (data.v_limits[3] - data.v_limits[0]) / (data.shape[0] - 1);
+   
+   for(size_t i=0; i< data.shape[0]; ++i){
+      for(size_t j=0; j< data.shape[1]; ++j){
+        for(size_t k=0; k< data.shape[2]; ++k){
+          
+          int index = i*data.shape[2]*data.shape[1] + j*data.shape[1] + k;
+          u[0] +=  vx[i] * data.vdf_vals[index] * dv * dv * dv;
+          u[1] +=  vy[j] * data.vdf_vals[index] * dv * dv * dv;
+          u[2] +=  vz[k] * data.vdf_vals[index] * dv * dv * dv;
+          n += data.vdf_vals[index] * dv * dv * dv;
+         }
+      }
+   }
+
+   for (float& val : u) {  // Use reference to modify elements
+      val /= n;
+  }
+
    return u;
  }
  
- //get thermal velocity <-- Just patch 
- float get_thermal_velocity(HERMITE::OrderedVDF data){
-   int index;
-   float sum=0;
-   float weight=0;
-   std::vector<float> x = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
-   std::vector<float> y = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
-   std::vector<float> z = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
-   for(size_t i=0; i< data.shape[0]; ++i){
-     for(size_t j=0; j< data.shape[1]; ++j){
-       for(size_t k=0; k< data.shape[2]; ++k){
-         index = i*data.shape[2]*data.shape[1] + j*data.shape[1] + k;
-         sum += data.vdf_vals[index] * (x[i]*x[i]+y[j]*y[j]+z[k]*z[k]);
-         weight += data.vdf_vals[index];
-       }
-     }
+ //get thermal velocity <-- Proper 
+ float get_thermal_velocity(HERMITE::OrderedVDF data, std::vector<float> u){
+   float dv = (data.v_limits[3] - data.v_limits[0]) / (data.shape[0] - 1);
+
+   std::vector<float> vx = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
+   std::vector<float> vy = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
+   std::vector<float> vz = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
+
+   float n = 0;
+   float Pxx = 0;
+   float Pyy = 0;
+   float Pzz = 0;
+   
+
+   for(size_t i=0; i<data.shape[0]; ++i){
+      for(size_t j=0; j<data.shape[1]; ++j){
+        for(size_t k=0; k<data.shape[2]; ++k){
+         int index = i*data.shape[2]*data.shape[1] + j*data.shape[1] + k;
+         Pxx += (vx[i] - u[0]) * ((vx[i] - u[0])) * data.vdf_vals[index] * dv * dv * dv ;
+         Pyy += (vy[j] - u[1]) * ((vy[j] - u[1])) * data.vdf_vals[index] * dv * dv * dv ;
+         Pzz += (vz[k] - u[2]) * ((vz[k] - u[2])) * data.vdf_vals[index] * dv * dv * dv ;
+         n += data.vdf_vals[index] * dv * dv * dv;
+        }
+      }
    }
-   return sqrt(sum/weight);
- }
+
+  float vth = std::sqrt(  (Pxx+Pyy+Pzz) /3 /n );
+   
+return vth;
+
+}
+
  
 
 // calculate hermite spectra in 3D
@@ -331,8 +367,8 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
    int order=15; // define max order of the hermite decomposition
    // std::string fileName="vdf_41.bin"; // load vlsv vdf from binary
    // VDFdata data = read_vdf_bin(fileName);
-   float vth = get_thermal_velocity(vdfdata);
    std::vector<float> u = get_drift_velocity(vdfdata); 
+   float vth = get_thermal_velocity(vdfdata, u);
    std::vector<float> spectra=hermite_spectra_3d(vdfdata, order, vth, u);
    std::vector<float> f = reconstruct_vdf(vdfdata, spectra, order, vth, u);
    // for(int i=2600; i<2605; ++i){
@@ -376,7 +412,7 @@ int HERMITE::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const O
                     const size_t index = bbox_i * (ny * nz) + bbox_j * nz + bbox_k;
                  // vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
 
-               vdf_data[cellIndex(i, j, k)] = 0.1f*sparse * std::pow(10,vdf.vdf_vals.at(index));
+               vdf_data[cellIndex(i, j, k)] = sparse * std::pow(10,vdf.vdf_vals.at(index));
 
                // for (uint i=0; i<vspace.size(); ++i){
                //    vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(0.1f * sparse))) -std::log10(0.1f * sparse);
