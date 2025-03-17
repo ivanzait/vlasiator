@@ -8,7 +8,52 @@
 #include "../definitions.h"
 #include <iostream>
 #include "../spatial_cell_cpu.hpp"
+
 namespace HERMITE {
+
+   struct HermSpectrum {
+      int N_hermite_harmonic;
+      float vth;
+      std::vector<float> u;
+      std::vector<float> HermSpectrum;
+
+      // std::size_t index(std::size_t i, std::size_t j, std::size_t k) const noexcept {
+      //    return i * (N_hermite_harmonic * N_hermite_harmonic) + j * N_hermite_harmonic + k;
+      // }
+      // Realf& at(std::size_t i, std::size_t j, std::size_t k) noexcept { return HermSpectrum.at(index(i, j, k)); }   
+      // const Realf& at(std::size_t i, std::size_t j, std::size_t k) const noexcept { return HermSpectrum.at(index(i, j, k)); }
+
+      bool save_to_file(const char* filename) const noexcept {            
+         std::ofstream file(filename, std::ios::binary);
+         if (!file) {
+            std::cerr << "Could not open file for writting! Exiting!" << std::endl;
+            return false;
+         }
+         file.write( reinterpret_cast<const char*>(&N_hermite_harmonic), sizeof(int));         
+         if (!file) {
+            std::cerr << "Error writing Number of harmonics!" << std::endl;
+            return false;
+         }
+         file.write( reinterpret_cast<const char*>(&vth), sizeof(float) );         
+         if (!file) {
+            std::cerr << "Error writing thermal speed !" << std::endl;
+            return false;
+         }
+         file.write( reinterpret_cast<const char*>(u.data()), 3*sizeof(float));         
+         if (!file) {
+            std::cerr << "Error writing bulk velocity !" << std::endl;
+            return false;
+         }
+         file.write( reinterpret_cast<const char*>(HermSpectrum.data()), pow(N_hermite_harmonic,3)*sizeof(float));         
+         if (!file) {
+            std::cerr << "Error writing vector of Hermite harmonics !" << std::endl;
+            return false;
+         }
+      return true;
+      } // end saving spectrum data
+
+   }; // end HermSpectrum structure
+   
 
    struct OrderedVDF {
       
@@ -60,6 +105,8 @@ struct VCoords {
 
 
 OrderedVDF extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( SpatialCell* sc, uint popID,int zoom);
+
+HermSpectrum getHermiteSpectra(OrderedVDF vdfdata);
 
 OrderedVDF hermite_transform_back_and_forth(OrderedVDF vdfdata);
 

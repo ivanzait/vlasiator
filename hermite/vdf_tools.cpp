@@ -236,7 +236,66 @@ std::vector<std::vector<float>> get_hermite_x(HERMITE::OrderedVDF data, int orde
    return hermite_z;
  }
  
+
  
+
+
+// get normalized physicists hermite polynomials for reconstruction // bulk velocity shift in another direction 
+// get polynomilas in X 
+std::vector<std::vector<float>> get_hermite_x_reconstruction(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
+   std::vector<float> x = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
+   for(auto& val:x ){
+     val = (val + u[0])/(vth); /// NORMALIZATION VSPACE
+   }
+   std::vector<std::vector<float>> hermite_x = hermite(x, order);
+   for(int n=0; n<order; ++n){
+     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
+     for(size_t i=0; i < x.size(); ++i){
+       hermite_x[n][i] /= norm_const;
+       hermite_x[n][i] += u[0];
+    //   std::cout << "herm" << hermite_x[n][i] << std::endl;
+     }
+   }
+   return hermite_x;
+ }
+// get polynomilas in Y 
+ // get polynomilas in Y
+ std::vector<std::vector<float>> get_hermite_y_reconstruction(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
+   std::vector<float> y = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
+   for(auto& val:y ){
+     val = (val + u[1])/(vth); /// NORMALIZATION VSPACE
+   }
+   std::vector<std::vector<float>> hermite_y = hermite(y, order);
+   for(int n=0; n<order; ++n){
+     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
+     for(size_t i=0; i < y.size(); ++i){
+       hermite_y[n][i] *= 1/norm_const;
+       hermite_y[n][i] += u[1];
+     }
+   }
+   return hermite_y;
+ }
+ // get polynomilas in Z
+ std::vector<std::vector<float>> get_hermite_z_reconstruction(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
+   std::vector<float> z = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
+   // for(auto& val:z ){
+   //   val = (val - u[2])/(vth); /// NORMALIZATION VSPACE
+   // }
+   std::vector<std::vector<float>> hermite_z = hermite(z, order);
+   for(int n=0; n<order; ++n){
+     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
+     for(size_t i=0; i < z.size(); ++i){
+       hermite_z[n][i] *= 1/norm_const;
+       hermite_z[n][i] += u[2];
+     }
+   }
+   return hermite_z;
+ }
+ 
+
+
+
+
 
  //get drift velocity from VDFdata structure: <-- Proper
 std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
@@ -282,7 +341,6 @@ std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
    float Pyy = 0;
    float Pzz = 0;
    
-
    for(size_t i=0; i<data.shape[0]; ++i){
       for(size_t j=0; j<data.shape[1]; ++j){
         for(size_t k=0; k<data.shape[2]; ++k){
@@ -296,13 +354,10 @@ std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
    }
 
   float vth = std::sqrt(  (Pxx+Pyy+Pzz) /3 /n );
-   
 return vth;
-
 }
 
  
-
 // calculate hermite spectra in 3D
 std::vector<float> hermite_spectra_3d(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
    std::vector<float> spectra(order*order*order);
@@ -338,11 +393,12 @@ std::vector<float> hermite_spectra_3d(HERMITE::OrderedVDF data, int order, float
  // reconstruction
 std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> spectra, int order, float vth, std::vector<float> u){
    std::vector<float> f(data.shape[2]*data.shape[1]*data.shape[0]);
-   std::vector<std::vector<float>> hermite_x = get_hermite_x(data, order, vth, u);
-   std::vector<std::vector<float>> hermite_y = get_hermite_y(data, order, vth, u);
-   std::vector<std::vector<float>> hermite_z = get_hermite_z(data, order, vth, u);
+   std::vector<float> f_shifted(f.size(), 0.0f);
+   std::vector<std::vector<float>> hermite_x = get_hermite_x(data, order, vth, {0,0,0}) ; 
+   std::vector<std::vector<float>> hermite_y = get_hermite_y(data, order, vth, {0,0,0}) ;
+   std::vector<std::vector<float>> hermite_z = get_hermite_z(data, order, vth, {0,0,0}) ;
    float dv = (data.v_limits[3]-data.v_limits[0]) / (data.shape[0]-1);
-   for (size_t vx=0; vx<data.shape[0]; ++vx){
+   for (size_t vx=0; vx<data.shape[0]; ++vx){    
      for (size_t vy=0; vy<data.shape[1]; ++vy){
        for (size_t vz=0; vz<data.shape[2]; ++vz){
          int ind = vx*data.shape[1]*data.shape[2] + vy*data.shape[2] + vz;
@@ -356,10 +412,33 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
            }
          }
          f[ind]=sum;
+         // Compute new shifted indices
+         int vx_shifted = std::round(vx + u[0] / dv);
+         int vy_shifted = std::round(vy + u[1] / dv);
+         int vz_shifted = std::round(vz + u[2] / dv);
+
+         // Check bounds before assigning to f_shifted
+         if (vx_shifted >= 0 && vx_shifted < data.shape[0] &&
+             vy_shifted >= 0 && vy_shifted < data.shape[1] &&
+             vz_shifted >= 0 && vz_shifted < data.shape[2]) {
+           int shifted_index = vx_shifted * data.shape[1] * data.shape[2] + vy_shifted * data.shape[2] + vz_shifted;
+           f_shifted[shifted_index] = f[ind]; // Move VDF values
+         }
+
        }
      }
    }
- return f;
+
+ return f_shifted;
+ }
+
+ 
+ HERMITE::HermSpectrum HERMITE::getHermiteSpectra(HERMITE::OrderedVDF vdfdata){
+   int order=15; // define max order of the hermite decomposition
+   std::vector<float> u = get_drift_velocity(vdfdata); 
+   float vth = get_thermal_velocity(vdfdata, u);
+   std::vector<float> spectra=hermite_spectra_3d(vdfdata, order, vth, u); 
+   return HERMITE::HermSpectrum{.N_hermite_harmonic = order, .vth = vth, .u = u, .HermSpectrum = spectra };
  }
 
 
@@ -369,17 +448,9 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
    // VDFdata data = read_vdf_bin(fileName);
    std::vector<float> u = get_drift_velocity(vdfdata); 
    float vth = get_thermal_velocity(vdfdata, u);
-   std::vector<float> spectra=hermite_spectra_3d(vdfdata, order, vth, u);
-   std::vector<float> f = reconstruct_vdf(vdfdata, spectra, order, vth, u);
-   // for(int i=2600; i<2605; ++i){
-   //   std::cout << data.vdf_vals[i] << " vlsv data " << std::endl;
-   //   std::cout << f[i] << " reconstruction " << std::endl;
-   // }
-   
-   vdfdata.vdf_vals = f;
-   // std::string fileName_rec = fileName + "reconstructed.bin";
-   // data.save_to_file(fileName_rec.c_str());
- 
+   std::vector<float> spectra=hermite_spectra_3d(vdfdata, order, vth, u);  
+   std::vector<float> vdf_recon = reconstruct_vdf( vdfdata, spectra, order, vth, u);
+   vdfdata.vdf_vals = vdf_recon;
    return vdfdata;
 }
 

@@ -860,20 +860,24 @@ int main(int argn,char* args[]) {
       
       addTimedBarrier("barrier-loop-start");
 
+      // Hermite business
       auto local_cells=getLocalCells();
       for (const auto& c:local_cells){
          SpatialCell* sc=mpiGrid[c]; 
          
          HERMITE::OrderedVDF vdf=HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, 0,1);
-         std::string fname = "vdf_" + std::to_string(c) + ".bin";
-         vdf.save_to_file(fname.c_str());
+         // std::string fname = "vdf_" + std::to_string(c) + ".bin";
+         // vdf.save_to_file(fname.c_str());
 
-         auto vdf_recon = HERMITE::hermite_transform_back_and_forth(vdf);
-         //auto vdf_reconstructed = hermite_transform_back_and_forth(vdf);
-         std::string fname_recon = "vdf_" + std::to_string(c) + "_reconstructed.bin";
-         vdf_recon.save_to_file(fname_recon.c_str());
+         // get Hermite spectra
+         HERMITE::HermSpectrum spectrum=HERMITE::getHermiteSpectra(vdf);
+         std::string fname = "spectrum_tstep_" +std::to_string(P::tstep)+ "_cell_" + std::to_string(c) + ".bin";
+         spectrum.save_to_file(fname.c_str());
 
-         //auto vdf=HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, 0,1);
+         // OVERWRITING RECONSTRUCTED VDF !!!
+         auto vdf_recon = HERMITE::hermite_transform_back_and_forth(vdf);         
+         std::string fname_recon = "vdf_tstep" + std::to_string(P::tstep)+ "_cell_" + std::to_string(c) + "_reconstructed.bin";
+         vdf_recon.save_to_file(fname_recon.c_str());         
          HERMITE::overwrite_pop_spatial_cell_vdf(sc, 0, vdf_recon);
 
       }
