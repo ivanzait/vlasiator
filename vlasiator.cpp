@@ -62,6 +62,8 @@
 #include "fieldsolver/gridGlue.hpp"
 #include "fieldsolver/derivatives.hpp"
 
+#include "hermite/vdf_tools.h"
+
 #include <signal.h>
 
 #ifdef CATCH_FPE
@@ -823,10 +825,47 @@ int simulate(int argn,char* args[]) {
    double beforeTime = MPI_Wtime();
    double beforeSimulationTime=P::t_min;
    double beforeStep=P::tstep_min;
+   float hermite_time=0.0f;
 
    while(P::tstep <= P::tstep_max  &&
          P::t-P::dt <= P::t_max+DT_EPSILON &&
          wallTimeRestartCounter <= P::exitAfterRestarts) {
+
+      // Asterix-VDF Compression
+      MPI_Barrier(MPI_COMM_WORLD);
+      phiprof::Timer compression_interface{"asterix-compression"};
+      const bool compressNow = hermite_time + P::dt >= P::hermite_interval;
+      if (compressNow) {
+
+         logFile << "(HERMITE)  at " << P::tstep << " t = " << P::t << " dt = "  << endl;
+         hermite_time = 0.0f;
+         // Hermite
+         phiprof::Timer hermiteTimer{"Hermite-Reconstruction"};
+         auto local_cells = getLocalCells();
+         #pragma omp parallel for 
+         for (const auto& c : local_cells) {
+            SpatialCell* sc = mpiGrid[c];
+            constexpr uint pop_id = 0;
+            HERMITE::OrderedVDF vdf = HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, pop_id, 1);
+            // const std::string vdfname = "vdf_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
+            // vdf.save_to_file(vdfname.c_str());
+
+            // //  get Hermite spectra
+            // const HERMITE::HermSpectrum spectrum = HERMITE::getHermiteSpectra(vdf);
+            // const std::string spectrname =
+            //     "spectrum_tstep_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
+            // spectrum.save_to_file(spectrname.c_str());
+
+            // OVERWRITING RECONSTRUCTED VDF !!!
+            const auto vdf_recon = HERMITE::hermite_transform_back_and_forth(vdf);
+            // std::string vdf_recon_name =
+            //     "vdf_tstep" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + "_reconstructed.bin";
+            // vdf_recon.save_to_file(vdf_recon_name.c_str());
+            HERMITE::overwrite_pop_spatial_cell_vdf(sc, 0, vdf_recon);
+         }
+         hermiteTimer.stop();
+      }
+      hermite_time+=P::dt;
 
       addTimedBarrier("barrier-loop-start");
       

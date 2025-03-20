@@ -231,6 +231,7 @@ struct Parameters {
    static std::array<FsGridTools::Task_t,3> manualFsGridDecomposition;
    static std::array<FsGridTools::Task_t,3> overrideReadFsGridDecomposition;
    
+   static float hermite_interval;
    static bool computeCurvature; /*<! Boolean flag, if true the curvature of magnetic field is computed. */
 
    /*! \brief Add the global parameters.

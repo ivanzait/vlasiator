@@ -208,6 +208,7 @@ std::array<FsGridTools::Task_t,3> P::overrideReadFsGridDecomposition = {0,0,0};
 
 std::string tracerString; /*!< Fieldline tracer to use for coupling ionosphere and magnetosphere */
 bool P::computeCurvature;
+float P::hermite_interval;
 
 bool P::addParameters() {
    typedef Readparameters RP;
@@ -542,6 +543,8 @@ bool P::addParameters() {
    RP::add("fieldtracing.max_allowed_x", "Trace for x coordinates smaller than this limit (in m).", LARGE_REAL);
    RP::add("fieldtracing.max_allowed_y", "Trace for y coordinates smaller than this limit (in m).", LARGE_REAL);
    RP::add("fieldtracing.max_allowed_z", "Trace for z coordinates smaller than this limit (in m).", LARGE_REAL);
+   //Hermite
+   RP::add("hermite.interval", "Reconstruct VDFs with hermite every n seconds", LARGE_REAL);
 
    return true;
 }
@@ -790,6 +793,8 @@ void Parameters::getParameters() {
    RP::get("gridbuilder.x_length", P::xcells_ini);
    RP::get("gridbuilder.y_length", P::ycells_ini);
    RP::get("gridbuilder.z_length", P::zcells_ini);
+   
+   RP::get("hermite.interval", P::hermite_interval);
 
    RP::get("AMR.max_spatial_level", P::amrMaxSpatialRefLevel);
    RP::get("AMR.max_allowed_spatial_level", P::amrMaxAllowedSpatialRefLevel);

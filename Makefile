@@ -193,7 +193,7 @@ OBJS = 	version.o memoryallocation.o memory_report.o backgroundfield.o quadr.o d
 	Alfven.o Diffusion.o Dispersion.o Distributions.o Firehose.o\
 	Flowthrough.o Fluctuations.o Harris.o KHB.o Larmor.o Magnetosphere.o MultiPeak.o\
 	Riemann1.o Shock.o Template.o test_fp.o testHall.o\
-	IPShock.o object_wrapper.o\
+	IPShock.o object_wrapper.o vdf_tools.o\
 	verificationLarmor.o Shocktest.o grid.o ioread.o iowrite.o vlasiator.o logger.o\
 	common.o parameters.o readparameters.o spatial_cell.o block_adjust.o velocity_mesh_parameters.o\
 	vlasovmover.o $(FIELDSOLVER).o fs_common.o fs_limiters.o gridGlue.o
@@ -298,6 +298,10 @@ endif
 	@echo [CC] $<
 	$(SILENT)${CMP} ${CXXFLAGS} ${MATHFLAGS} ${FLAGS} -c $< ${INC_DCCRG} ${INC_ZOLTAN} ${INC_FSGRID}
 
+%.o: hermite/%.cpp 
+	@echo [CC] $<
+	$(SILENT)${CMP}  ${CXXFLAGS} ${FLAGS} -c $< -I$(CURDIR) ${INC_MPI} ${INC_BOOST} ${INC_EIGEN} ${INC_DCCRG} ${INC_FSGRID} ${INC_PROFILE} ${INC_ZOLTAN}
+	
 # for all files in the datareduction/ dir
 %.o: datareduction/%.cpp ${DEPS_COMMON} datareduction/datareductionoperator.h fieldtracing/fieldtracing.h sysboundary/ionosphere.h datareduction/dro_populations.h
 	@echo [CC] $<
