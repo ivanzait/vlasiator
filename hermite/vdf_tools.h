@@ -97,11 +97,18 @@ namespace HERMITE {
       }
    };
 
-struct VCoords {
-   Real vx, vy, vz;
-   VCoords operator+(const VCoords& other) { return {vx + other.vx, vy + other.vy, vz + other.vz}; }
-   VCoords operator-(const VCoords& other) { return {vx - other.vx, vy - other.vy, vz - other.vz}; }
-};
+
+   
+
+////// V COOORDINATES - DO I NEED ???
+
+   struct VCoords {
+      Real vx, vy, vz;
+      VCoords operator+(const VCoords& other) { return {vx + other.vx, vy + other.vy, vz + other.vz}; }
+      VCoords operator-(const VCoords& other) { return {vx - other.vx, vy - other.vy, vz - other.vz}; }
+   };
+
+
 
 
 OrderedVDF extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( SpatialCell* sc, uint popID,int zoom);
@@ -110,6 +117,12 @@ HermSpectrum getHermiteSpectra(OrderedVDF vdfdata);
 
 OrderedVDF hermite_transform_back_and_forth(OrderedVDF vdfdata);
 
-int overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf);
+ int overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf);
 
-}
+// int overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace);
+
+
+} // End Hermite namespace 
+
+
+

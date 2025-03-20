@@ -4,6 +4,9 @@
 #include <array>
 #include "vdf_tools.h"
 
+
+
+
 HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( SpatialCell* sc, uint popID,
                                                                                        int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
@@ -127,9 +130,8 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
    }
  
    for (uint i=0; i<vspace.size(); ++i){
-      vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(sparse))) - std::log10(sparse);
-   }
-   
+       vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(sparse))) - std::log10(sparse);
+    }
 
    return HERMITE::OrderedVDF{.blocks_to_ignore=ignored,.sparse_vdf_bytes=total_blocks*WID*WID*WID*sizeof(Realf),.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
 }
@@ -137,7 +139,6 @@ HERMITE::OrderedVDF  HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox
 
 void dump_vdf_to_binary_file(const char* filename,uint popID, CellID cid,
    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
-
    SpatialCell* sc = mpiGrid[cid];
    assert(sc && "Invalid Pointer to Spatial Cell !");
    HERMITE::OrderedVDF vdf = HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, popID, 1);
@@ -146,19 +147,24 @@ void dump_vdf_to_binary_file(const char* filename,uint popID, CellID cid,
 
 
 //  Hermite decomposition functions are below 
-
 // factorial
 unsigned long long factorial(int n) {
+   if (n < 0) {
+       throw std::invalid_argument("Factorial is not defined for negative numbers.");
+   }
    unsigned long long result = 1;
    for (int i = 2; i <= n; ++i) {
-       result *= i;
+       result *= i;       
+       if (result < i) {
+           throw std::overflow_error("Factorial result is too large!");
+       }
    }
    return result;
 }
 
 // linspace
 std::vector<float> linspace(double start, double end, int len){
- float step = (end-start)/(len-1);
+ float step = (end-start)/(len - 1);
  std::vector<float> x(len);
  for(int i=0; i<len; ++i){
    x[i] = start + i*step;
@@ -177,8 +183,7 @@ std::vector<std::vector<float>> hermite(std::vector<float>& x, int order){
        hp[1][i] = 2*x[i] * std::exp(-0.5*x[i]*x[i]);
      }
      for(int n=2; n<order; ++n){  // Then use recurrent chain
-       for(size_t i=0; i<x.size(); ++i){
-             //  std::cout <<"xi" << x[i] << std::endl;
+       for(size_t i=0; i<x.size(); ++i){     
          hp[n][i] = (2*x[i]*hp[n-1][i] - 2*(n-1)*hp[n-2][i] ) ;
        }
      }
@@ -186,133 +191,41 @@ std::vector<std::vector<float>> hermite(std::vector<float>& x, int order){
    }
 
 
-
-// get normalized physicists hermite polynomials for vdf data structure
-// get polynomilas in X 
-std::vector<std::vector<float>> get_hermite_x(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
-   std::vector<float> x = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
-
-   for(auto& val:x ){
-     val = (val - u[0])/(vth); /// NORMALIZATION VSPACE
+   // Function to compute normalized physicists' Hermite polynomials for a given axis
+   std::vector<std::vector<float>> get_hermite(const HERMITE::OrderedVDF& data, int order, float vth, const std::vector<float>& u, int axis) {
+       // Determine velocity limits for the given axis
+       float v_min = data.v_limits[axis];
+       float v_max = data.v_limits[axis + 3];
+       // Generate velocity grid
+       std::vector<float> v_axis = linspace(v_min, v_max, data.shape[axis]);      
+       for (auto& val : v_axis) {
+           val = (val - u[axis]) / vth;
+       }       
+       std::vector<std::vector<float>> hermite_vals = hermite(v_axis, order);          
+       for (int n = 0; n < order; ++n) {
+           float norm_const = std::sqrt(std::pow(2, n) * factorial(n) * std::sqrt(M_PI) * vth);
+           for (size_t i = 0; i < v_axis.size(); ++i) {
+               hermite_vals[n][i] /= norm_const;
+           }
+       }
+       return hermite_vals;
    }
-   std::vector<std::vector<float>> hermite_x = hermite(x, order);
-   for(int n=0; n<order; ++n){
-     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(size_t i=0; i < x.size(); ++i){
-       hermite_x[n][i] /= norm_const;
-    //   std::cout << "herm" << hermite_x[n][i] << std::endl;
-     }
-   }
-   return hermite_x;
- }
- // get polynomilas in Y
- std::vector<std::vector<float>> get_hermite_y(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
-   std::vector<float> y = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
-   for(auto& val:y ){
-     val = (val - u[1])/(vth); /// NORMALIZATION VSPACE
-   }
-   std::vector<std::vector<float>> hermite_y = hermite(y, order);
-   for(int n=0; n<order; ++n){
-     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(size_t i=0; i < y.size(); ++i){
-       hermite_y[n][i] *= 1/norm_const;
-     }
-   }
-   return hermite_y;
- }
- // get polynomilas in Z
- std::vector<std::vector<float>> get_hermite_z(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
-   std::vector<float> z = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
-   for(auto& val:z ){
-     val = (val - u[2])/(vth); /// NORMALIZATION VSPACE
-   }
-   std::vector<std::vector<float>> hermite_z = hermite(z, order);
-   for(int n=0; n<order; ++n){
-     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(size_t i=0; i < z.size(); ++i){
-       hermite_z[n][i] *= 1/norm_const;
-     }
-   }
-   return hermite_z;
- }
- 
-
- 
-
-
-// get normalized physicists hermite polynomials for reconstruction // bulk velocity shift in another direction 
-// get polynomilas in X 
-std::vector<std::vector<float>> get_hermite_x_reconstruction(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
-   std::vector<float> x = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
-   for(auto& val:x ){
-     val = (val + u[0])/(vth); /// NORMALIZATION VSPACE
-   }
-   std::vector<std::vector<float>> hermite_x = hermite(x, order);
-   for(int n=0; n<order; ++n){
-     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(size_t i=0; i < x.size(); ++i){
-       hermite_x[n][i] /= norm_const;
-       hermite_x[n][i] += u[0];
-    //   std::cout << "herm" << hermite_x[n][i] << std::endl;
-     }
-   }
-   return hermite_x;
- }
-// get polynomilas in Y 
- // get polynomilas in Y
- std::vector<std::vector<float>> get_hermite_y_reconstruction(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
-   std::vector<float> y = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
-   for(auto& val:y ){
-     val = (val + u[1])/(vth); /// NORMALIZATION VSPACE
-   }
-   std::vector<std::vector<float>> hermite_y = hermite(y, order);
-   for(int n=0; n<order; ++n){
-     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(size_t i=0; i < y.size(); ++i){
-       hermite_y[n][i] *= 1/norm_const;
-       hermite_y[n][i] += u[1];
-     }
-   }
-   return hermite_y;
- }
- // get polynomilas in Z
- std::vector<std::vector<float>> get_hermite_z_reconstruction(HERMITE::OrderedVDF data, int order, float vth, std::vector<float> u){
-   std::vector<float> z = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
-   // for(auto& val:z ){
-   //   val = (val - u[2])/(vth); /// NORMALIZATION VSPACE
-   // }
-   std::vector<std::vector<float>> hermite_z = hermite(z, order);
-   for(int n=0; n<order; ++n){
-     float norm_const = sqrt(pow(2,n)*factorial(n)*sqrt(M_PI)*vth);
-     for(size_t i=0; i < z.size(); ++i){
-       hermite_z[n][i] *= 1/norm_const;
-       hermite_z[n][i] += u[2];
-     }
-   }
-   return hermite_z;
- }
- 
-
-
-
-
-
- //get drift velocity from VDFdata structure: <-- Proper
-std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
    
+ 
+
+
+//get drift velocity from VDFdata structure: <-- Proper
+std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){   
    std::vector<float> u(3);
    std::vector<float> vx = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
    std::vector<float> vy = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
    std::vector<float> vz = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
    float n = 0;
-   
-   float dv = (data.v_limits[3] - data.v_limits[0]) / (data.shape[0] - 1);
-   
+   float dv = (data.v_limits[3] - data.v_limits[0]) / (data.shape[0] );
    for(size_t i=0; i< data.shape[0]; ++i){
       for(size_t j=0; j< data.shape[1]; ++j){
-        for(size_t k=0; k< data.shape[2]; ++k){
-          
-          int index = i*data.shape[2]*data.shape[1] + j*data.shape[1] + k;
+        for(size_t k=0; k< data.shape[2]; ++k){          
+          int index = i*data.shape[2]*data.shape[1] + j*data.shape[2] + k;
           u[0] +=  vx[i] * data.vdf_vals[index] * dv * dv * dv;
           u[1] +=  vy[j] * data.vdf_vals[index] * dv * dv * dv;
           u[2] +=  vz[k] * data.vdf_vals[index] * dv * dv * dv;
@@ -320,27 +233,22 @@ std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
          }
       }
    }
-
    for (float& val : u) {  // Use reference to modify elements
       val /= n;
   }
-
    return u;
  }
  
  //get thermal velocity <-- Proper 
  float get_thermal_velocity(HERMITE::OrderedVDF data, std::vector<float> u){
-   float dv = (data.v_limits[3] - data.v_limits[0]) / (data.shape[0] - 1);
-
+   float dv = (data.v_limits[3] - data.v_limits[0]) / (data.shape[0] );
    std::vector<float> vx = linspace(data.v_limits[0],data.v_limits[3],data.shape[0]);
    std::vector<float> vy = linspace(data.v_limits[1],data.v_limits[4],data.shape[1]);
    std::vector<float> vz = linspace(data.v_limits[2],data.v_limits[5],data.shape[2]);
-
    float n = 0;
    float Pxx = 0;
    float Pyy = 0;
    float Pzz = 0;
-   
    for(size_t i=0; i<data.shape[0]; ++i){
       for(size_t j=0; j<data.shape[1]; ++j){
         for(size_t k=0; k<data.shape[2]; ++k){
@@ -352,8 +260,7 @@ std::vector<float> get_drift_velocity(HERMITE::OrderedVDF data){
         }
       }
    }
-
-  float vth = std::sqrt(  (Pxx+Pyy+Pzz) /3 /n );
+  float vth = std::sqrt(  (Pxx+Pyy+Pzz) / (3 * n) );
 return vth;
 }
 
@@ -364,10 +271,10 @@ std::vector<float> hermite_spectra_3d(HERMITE::OrderedVDF data, int order, float
    int hermite_index;
    int vspace_index;
    float sum;
-   float dv = (data.v_limits[3]-data.v_limits[0]) / (data.shape[0]-1);
-   std::vector<std::vector<float>> hermite_x = get_hermite_x(data, order, vth, u);
-   std::vector<std::vector<float>> hermite_y = get_hermite_y(data, order, vth, u);
-   std::vector<std::vector<float>> hermite_z = get_hermite_z(data, order, vth, u);
+   float dv = (data.v_limits[3]-data.v_limits[0]) / (data.shape[0])  ;
+   std::vector<std::vector<float>> hermite_x = get_hermite(data, order, vth, u, 0);
+   std::vector<std::vector<float>> hermite_y = get_hermite(data, order, vth, u, 1);
+   std::vector<std::vector<float>> hermite_z = get_hermite(data, order, vth, u, 2);
    // loop over hermite
    for(int nx=0; nx<order; ++nx){
      for(int ny=0; ny<order; ++ny){
@@ -377,7 +284,7 @@ std::vector<float> hermite_spectra_3d(HERMITE::OrderedVDF data, int order, float
          sum=0;
          for(size_t ix=0; ix<data.shape[0]; ++ix){
            for(size_t iy=0; iy<data.shape[1]; ++iy){
-             for(size_t iz=0; iz<data.shape[2]; ++iz){
+             for(size_t iz=0; iz<data.shape[0]; ++iz){
                vspace_index=ix*(data.shape[2])*(data.shape[1])+iy*(data.shape[2])+iz;
                sum+=data.vdf_vals[vspace_index]*hermite_x[nx][ix]*hermite_y[ny][iy]*hermite_z[nz][iz]*dv*dv*dv;
              }
@@ -390,14 +297,18 @@ std::vector<float> hermite_spectra_3d(HERMITE::OrderedVDF data, int order, float
    return spectra;
  }
 
- // reconstruction
+// reconstruction
 std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> spectra, int order, float vth, std::vector<float> u){
+
    std::vector<float> f(data.shape[2]*data.shape[1]*data.shape[0]);
-   std::vector<float> f_shifted(f.size(), 0.0f);
-   std::vector<std::vector<float>> hermite_x = get_hermite_x(data, order, vth, {0,0,0}) ; 
-   std::vector<std::vector<float>> hermite_y = get_hermite_y(data, order, vth, {0,0,0}) ;
-   std::vector<std::vector<float>> hermite_z = get_hermite_z(data, order, vth, {0,0,0}) ;
-   float dv = (data.v_limits[3]-data.v_limits[0]) / (data.shape[0]-1);
+   
+   std::vector<std::vector<float>> hermite_x = get_hermite(data, order, vth, u, 0) ; 
+   std::vector<std::vector<float>> hermite_y = get_hermite(data, order, vth, u, 1) ;
+   std::vector<std::vector<float>> hermite_z = get_hermite(data, order, vth, u, 2) ;
+   
+   float dv = (data.v_limits[3]-data.v_limits[0]) / (data.shape[0]);
+   float max_f = 0.0f; 
+
    for (size_t vx=0; vx<data.shape[0]; ++vx){    
      for (size_t vy=0; vy<data.shape[1]; ++vy){
        for (size_t vz=0; vz<data.shape[2]; ++vz){
@@ -412,29 +323,22 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
            }
          }
          f[ind]=sum;
-         // Compute new shifted indices
-         int vx_shifted = std::round(vx + u[0] / dv);
-         int vy_shifted = std::round(vy + u[1] / dv);
-         int vz_shifted = std::round(vz + u[2] / dv);
-
-         // Check bounds before assigning to f_shifted
-         if (vx_shifted >= 0 && vx_shifted < data.shape[0] &&
-             vy_shifted >= 0 && vy_shifted < data.shape[1] &&
-             vz_shifted >= 0 && vz_shifted < data.shape[2]) {
-           int shifted_index = vx_shifted * data.shape[1] * data.shape[2] + vy_shifted * data.shape[2] + vz_shifted;
-           f_shifted[shifted_index] = f[ind]; // Move VDF values
-         }
-
+         if (sum > max_f) max_f = sum;
        }
      }
    }
+   // Apply thresholding 
+   float threshold = 0.05f * max_f;
+   for (float& val : f) {
+      if (val < threshold) val = 0.0f;
+   }
 
- return f_shifted;
+ return f;
  }
 
  
  HERMITE::HermSpectrum HERMITE::getHermiteSpectra(HERMITE::OrderedVDF vdfdata){
-   int order=15; // define max order of the hermite decomposition
+   int order=18; // define max order of the hermite decomposition
    std::vector<float> u = get_drift_velocity(vdfdata); 
    float vth = get_thermal_velocity(vdfdata, u);
    std::vector<float> spectra=hermite_spectra_3d(vdfdata, order, vth, u); 
@@ -443,7 +347,7 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
 
 
  HERMITE::OrderedVDF HERMITE::hermite_transform_back_and_forth(HERMITE::OrderedVDF vdfdata){
-   int order=15; // define max order of the hermite decomposition
+   int order=18; // define max order of the hermite decomposition
    // std::string fileName="vdf_41.bin"; // load vlsv vdf from binary
    // VDFdata data = read_vdf_bin(fileName);
    std::vector<float> u = get_drift_velocity(vdfdata); 
@@ -454,6 +358,7 @@ std::vector<float> reconstruct_vdf(HERMITE::OrderedVDF data, std::vector<float> 
    return vdfdata;
 }
 
+/// MAIN OVERWRITE
 int HERMITE::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
    vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
@@ -481,18 +386,14 @@ int HERMITE::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const O
                const size_t bbox_j = std::min(static_cast<size_t>(std::floor((vy - vdf.v_limits[1]) / dvy)), ny - 1);
                const size_t bbox_k = std::min(static_cast<size_t>(std::floor((vz - vdf.v_limits[2]) / dvz)), nz - 1);
                     const size_t index = bbox_i * (ny * nz) + bbox_j * nz + bbox_k;
-                 // vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
+               // vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
 
                vdf_data[cellIndex(i, j, k)] = sparse * std::pow(10,vdf.vdf_vals.at(index));
-
-               // for (uint i=0; i<vspace.size(); ++i){
-               //    vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(0.1f * sparse))) -std::log10(0.1f * sparse);
-               // }
-            
-
+               
             }
          }
       }
    } // over blocks
    return 0;
 }
+
