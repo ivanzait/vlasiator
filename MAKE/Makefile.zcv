@@ -43,8 +43,11 @@ LIB_MPI = -L/opt/homebrew/lib -lmpi
 CXXFLAGS += -I/opt/homebrew/include
 
 # OpenMP (LLVM version)
-LDFLAGS += -L/opt/homebrew/Cellar/llvm/19.1.7_1/lib -lomp
+#LDFLAGS += -L/opt/homebrew/Cellar/llvm/19.1.7_1/lib -lomp
 CXXFLAGS += -I/opt/homebrew/Cellar/llvm/19.1.7_1/include
+
+LDFLAGS=-L/opt/homebrew/opt/libomp/lib -lomp
+#CXXFLAGS=-I/opt/homebrew/opt/libomp/include
 
 #======== Libraries ===========
 
