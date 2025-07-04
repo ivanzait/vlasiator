@@ -16,7 +16,7 @@ namespace HERMITE {
       int N_hermite_harmonic;
       float vth;
       std::vector<float> u;
-      std::vector<float> HermSpectrum;
+      std::vector<float> Spectrum;
 
       // std::size_t index(std::size_t i, std::size_t j, std::size_t k) const noexcept {
       //    return i * (N_hermite_harmonic * N_hermite_harmonic) + j * N_hermite_harmonic + k;
@@ -45,7 +45,7 @@ namespace HERMITE {
             std::cerr << "Error writing bulk velocity !" << std::endl;
             return false;
          }
-         file.write( reinterpret_cast<const char*>(HermSpectrum.data()), pow(N_hermite_harmonic,3)*sizeof(float));         
+         file.write( reinterpret_cast<const char*>(Spectrum.data()), pow(N_hermite_harmonic,3)*sizeof(float));         
          if (!file) {
             std::cerr << "Error writing vector of Hermite harmonics !" << std::endl;
             return false;
@@ -98,30 +98,38 @@ namespace HERMITE {
       }
    };
 
-
-   
-
 ////// V COOORDINATES - DO I NEED ???
-
    struct VCoords {
       Real vx, vy, vz;
       VCoords operator+(const VCoords& other) { return {vx + other.vx, vy + other.vy, vz + other.vz}; }
       VCoords operator-(const VCoords& other) { return {vx - other.vx, vy - other.vy, vz - other.vz}; }
    };
 
+////// E,B fields
+   struct EBat {
+   std::array<float, 3> B = {0.0f, 0.0f, 0.0f};
+   std::array<float, 3> E = {0.0f, 0.0f, 0.0f};
+   bool save_to_file(const char* filename) const noexcept {
+        std::ofstream file(filename, std::ios::out | std::ios::binary);
+        if (!file) {
+            std::cerr << "Could not open file for writting! Exiting!" << std::endl;
+            return false;
+         }
+     file.write( reinterpret_cast<const char*>(& B ),3*sizeof(float));
+     file.write( reinterpret_cast<const char*>(& E ),3*sizeof(float));
+      return true;
+   } // end saving
+   }; // end structure
 
 
-
+EBat dropB(spatial_cell::SpatialCell* sc);
 OrderedVDF extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( spatial_cell::SpatialCell* sc, uint popID,int zoom);
-
+OrderedVDF rotate_vdf4cell(OrderedVDF vdf_struct,  spatial_cell::SpatialCell* sc);
 HermSpectrum getHermiteSpectra(OrderedVDF vdfdata);
-
+HermSpectrum getSpectrumRot(spatial_cell::SpatialCell* sc, HermSpectrum SpectrStruct );
 OrderedVDF hermite_transform_back_and_forth(OrderedVDF vdfdata);
-
- int overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const OrderedVDF& vdf);
-
-// int overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace);
-
+HermSpectrum getHERMITE_VDFRot(spatial_cell::SpatialCell* sc, HERMITE::OrderedVDF original_vdf );
+int overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const OrderedVDF& vdf);
 
 } // End Hermite namespace 
 

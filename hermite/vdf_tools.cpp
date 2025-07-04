@@ -1,7 +1,115 @@
 #include "vdf_tools.h"
 #include "../object_wrapper.h"
 #include <array>
+#include <cmath> 
 
+
+////////////// Vector Algebra
+using Vector3 = std::array<float, 3>;
+using Matrix3x3 = std::array<Vector3, 3>; 
+
+// linspace
+std::vector<float> linspace(float start, float end, int len) {
+   const float step = (end - start) / (len - 1);
+   std::vector<float> x(len,0.0f);
+   for (std::size_t i = 0; i < x.size(); ++i) {
+      x[i] = start + i * step;
+   }
+   return x;
+}
+
+Vector3 normalize(const Vector3& v) {
+    float norm = std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    return {v[0]/norm, v[1]/norm, v[2]/norm};
+}
+
+Vector3 cross(const Vector3& a, const Vector3& b) {
+    return {
+        a[1]*b[2] - a[2]*b[1],
+        a[2]*b[0] - a[0]*b[2],
+        a[0]*b[1] - a[1]*b[0]
+    };
+}
+
+Matrix3x3 build_rotation_matrix(const Vector3& E, const Vector3& B) {
+    Vector3 b_hat = normalize(B);
+    Vector3 e_hat = normalize(E);
+    Vector3 exb = cross(e_hat, b_hat);
+    Vector3 exb_hat = normalize(exb);
+    Vector3 perp = cross(b_hat, exb_hat); 
+
+    return { b_hat, exb_hat, perp }; 
+}
+
+
+/// Matrix transpose
+Matrix3x3 transpose(const Matrix3x3& R) {
+    Matrix3x3 Rt;
+    for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+        Rt[i][j] = R[j][i];
+    return Rt;
+}
+
+// Helper to get linear index from 3D index
+size_t idx(const OrderedVDF& vdf, size_t i, size_t j, size_t k) {
+    return i * (vdf.shape[1] * vdf.shape[2]) + j * vdf.shape[2] + k;
+}
+
+// Trilinear interpolation in original VDF at point (vx, vy, vz)
+float trilinear_interpolate(const OrderedVDF& vdf, float vx, float vy, float vz) {
+    // Normalize vx,vy,vz to grid indices:
+    float x_frac = (vx - vdf.v_limits[0]) / (vdf.v_limits[3] - vdf.v_limits[0]) * (vdf.shape[0] - 1);
+    float y_frac = (vy - vdf.v_limits[1]) / (vdf.v_limits[4] - vdf.v_limits[1]) * (vdf.shape[1] - 1);
+    float z_frac = (vz - vdf.v_limits[2]) / (vdf.v_limits[5] - vdf.v_limits[2]) * (vdf.shape[2] - 1);
+
+    int i0 = std::floor(x_frac);
+    int j0 = std::floor(y_frac);
+    int k0 = std::floor(z_frac);
+
+    int i1 = i0 + 1;
+    int j1 = j0 + 1;
+    int k1 = k0 + 1;
+
+    // Check bounds
+    if (i0 < 0 || j0 < 0 || k0 < 0 || i1 >= (int)vdf.shape[0] || j1 >= (int)vdf.shape[1] || k1 >= (int)vdf.shape[2])
+        return 0.0f;  // Outside grid → return 0 or some fallback
+
+    float xd = x_frac - i0;
+    float yd = y_frac - j0;
+    float zd = z_frac - k0;
+
+    // Fetch the 8 corners
+    float c000 = vdf.vdf_vals[idx(vdf, i0, j0, k0)];
+    float c100 = vdf.vdf_vals[idx(vdf, i1, j0, k0)];
+    float c010 = vdf.vdf_vals[idx(vdf, i0, j1, k0)];
+    float c110 = vdf.vdf_vals[idx(vdf, i1, j1, k0)];
+    float c001 = vdf.vdf_vals[idx(vdf, i0, j0, k1)];
+    float c101 = vdf.vdf_vals[idx(vdf, i1, j0, k1)];
+    float c011 = vdf.vdf_vals[idx(vdf, i0, j1, k1)];
+    float c111 = vdf.vdf_vals[idx(vdf, i1, j1, k1)];
+
+    // Interpolate along x
+    float c00 = c000 * (1 - xd) + c100 * xd;
+    float c10 = c010 * (1 - xd) + c110 * xd;
+    float c01 = c001 * (1 - xd) + c101 * xd;
+    float c11 = c011 * (1 - xd) + c111 * xd;
+
+    // Interpolate along y
+    float c0 = c00 * (1 - yd) + c10 * yd;
+    float c1 = c01 * (1 - yd) + c11 * yd;
+
+    // Interpolate along z
+    float c = c0 * (1 - zd) + c1 * zd;
+
+    return c;
+}
+
+
+
+/////////////////// END of vector algebra
+
+//// KOSTIS' EXTRACT
 HERMITE::OrderedVDF HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID,
                                                                                        int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
@@ -20,7 +128,7 @@ HERMITE::OrderedVDF HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
                              std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
 
    // This pass is computing the active vmesh limits
-   // Store dvx,dvy,dvz here
+   // Store dvx, dvy, dvz here
    const Real dvx = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVX];
    const Real dvy = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVY];
    const Real dvz = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVZ];
@@ -105,9 +213,10 @@ HERMITE::OrderedVDF HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
       }
    } // over blocks
 
-   for (uint i = 0; i < vspace.size(); ++i) {
-      vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(sparse))) - std::log10(sparse);
-   }
+   // making log10 !!!
+   // for (uint i = 0; i < vspace.size(); ++i) {
+   //    vspace[i] = std::log10(std::max(vspace[i], static_cast<float>(sparse))) - std::log10(sparse);
+   // }
 
    return HERMITE::OrderedVDF{.blocks_to_ignore = {},
                               .sparse_vdf_bytes = total_blocks * WID * WID * WID * sizeof(Realf),
@@ -124,17 +233,20 @@ void dump_vdf_to_binary_file(const char* filename, uint popID, CellID cid,
    // vdf.save_to_file(filename);
 }
 
+////// END of Kostis' extract
+
+////// HERMITE BASIS
 std::size_t factorial(std::size_t n) { return (n == 0) ? (1) : (n * factorial(n - 1)); }
 
 // linspace
-std::vector<float> linspace(float start, float end, int len) {
-   const float step = (end - start) / (len - 1);
-   std::vector<float> x(len,0.0f);
-   for (std::size_t i = 0; i < x.size(); ++i) {
-      x[i] = start + i * step;
-   }
-   return x;
-}
+//std::vector<float> linspace(float start, float end, int len) {
+//   const float step = (end - start) / (len - 1);
+//   std::vector<float> x(len,0.0f);
+//   for (std::size_t i = 0; i < x.size(); ++i) {
+//      x[i] = start + i * step;
+//   }
+//   return x;
+//}
 
 // generate hermite polinomials up to the given order
 std::vector<std::vector<float>> hermite(std::vector<float>& x, int order) {
@@ -297,7 +409,7 @@ HERMITE::HermSpectrum HERMITE::getHermiteSpectra(HERMITE::OrderedVDF vdfdata) {
    std::vector<float> u = get_drift_velocity(vdfdata);
    float vth = get_thermal_velocity(vdfdata, u);
    std::vector<float> spectra = hermite_spectra_3d(vdfdata, order, vth, u);
-   return HERMITE::HermSpectrum{.N_hermite_harmonic = order, .vth = vth, .u = u, .HermSpectrum = spectra};
+   return HERMITE::HermSpectrum{.N_hermite_harmonic = order, .vth = vth, .u = u, .Spectrum = spectra};
 }
 
 HERMITE::OrderedVDF HERMITE::hermite_transform_back_and_forth(HERMITE::OrderedVDF vdfdata) {
@@ -343,9 +455,211 @@ int HERMITE::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const O
                // vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
 
                vdf_data[cellIndex(i, j, k)] = sparse * std::pow(10, vdf.vdf_vals.at(index));
+               // vdf_data[cellIndex(i, j, k)] = vdf.vdf_vals.at(index);
             }
          }
       }
    } // over blocks
    return 0;
 }
+
+
+/// I need to extract and somehow write E and B
+HERMITE::EBat HERMITE::dropB(spatial_cell::SpatialCell* sc){
+	HERMITE::EBat eb;
+
+      eb.B[0] = sc->parameters[CellParams::PERBXVOL] + sc->parameters[CellParams::BGBXVOL];
+      eb.B[1] = sc->parameters[CellParams::PERBYVOL] + sc->parameters[CellParams::BGBYVOL];
+      eb.B[2] = sc->parameters[CellParams::PERBZVOL] + sc->parameters[CellParams::BGBZVOL];
+
+      eb.E[0] = sc->parameters[CellParams::EXVOL];
+      eb.E[1] = sc->parameters[CellParams::EYVOL];
+      eb.E[2] = sc->parameters[CellParams::EZVOL];
+
+   return eb;
+}
+
+
+
+
+////// ROTATION of the VDF
+// ROT LIMITS
+std::array<double, 6> compute_rotated_limits(
+    const std::vector<float>& vx,
+    const std::vector<float>& vy,
+    const std::vector<float>& vz,
+    const Matrix3x3& R
+) {
+    float vmin[3] = {-3e6, -3e6, -3e6};
+    float vmax[3] = {3e6, 3e6, 3e6};
+
+    for (float x : vx) {
+        for (float y : vy) {
+            for (float z : vz) {
+                Vector3 v = {x, y, z};
+                Vector3 vr = {
+                    R[0][0]*v[0] + R[0][1]*v[1] + R[0][2]*v[2],
+                    R[1][0]*v[0] + R[1][1]*v[1] + R[1][2]*v[2],
+                    R[2][0]*v[0] + R[2][1]*v[1] + R[2][2]*v[2]
+                };
+                for (int i = 0; i < 3; ++i) {
+                    vmin[i] = std::min(vmin[i], vr[i]);
+                    vmax[i] = std::max(vmax[i], vr[i]);
+                }
+            }
+        }
+    }
+
+    return {vmin[0], vmin[1], vmin[2], vmax[0], vmax[1], vmax[2]};
+}
+
+
+// get ROTATED VDF structure for a given rotation matrix
+HERMITE::OrderedVDF rotate_vdf(const HERMITE::OrderedVDF& input, const Matrix3x3& R) {
+    HERMITE::OrderedVDF rotated = input;
+    rotated.vdf_vals.assign(input.vdf_vals.size(), 0.0f);
+
+    auto shape = input.shape;
+    auto lin_x = linspace(input.v_limits[0], input.v_limits[3], shape[0]);
+    auto lin_y = linspace(input.v_limits[1], input.v_limits[4], shape[1]);
+    auto lin_z = linspace(input.v_limits[2], input.v_limits[5], shape[2]);
+
+    for (size_t ix = 0; ix < shape[0]; ++ix) {
+        for (size_t iy = 0; iy < shape[1]; ++iy) {
+            for (size_t iz = 0; iz < shape[2]; ++iz) {
+                Vector3 v_orig = {lin_x[ix], lin_y[iy], lin_z[iz]};
+                Vector3 v_rot = {
+                    R[0][0] * v_orig[0] + R[0][1] * v_orig[1] + R[0][2] * v_orig[2],
+                    R[1][0] * v_orig[0] + R[1][1] * v_orig[1] + R[1][2] * v_orig[2],
+                    R[2][0] * v_orig[0] + R[2][1] * v_orig[1] + R[2][2] * v_orig[2]
+                };
+                // Interpolate from input.vdf_vals at position v_rot
+                float f_val = interpolate3D(input, v_rot); // You'll implement this
+                size_t idx = rotated.index(ix, iy, iz);
+                rotated.vdf_vals[idx] = f_val;
+            }
+        }
+    }
+    // Also rotate velocity limits!
+    rotated.v_limits = compute_rotated_limits(lin_x, lin_y, lin_z, R);
+    return rotated;
+}
+
+
+// get ROTATED VDF structure for a given spatial cell
+//namespace HERMITE {
+HERMITE::OrderedVDF HERMITE::rotate_vdf4cell(const HERMITE::OrderedVDF vdf_struct, spatial_cell::SpatialCell* sc) {
+    HERMITE::OrderedVDF rotated_vdf = vdf_struct;
+    rotated_vdf.vdf_vals.assign(vdf_struct.vdf_vals.size(), 0.0f);
+
+        Vector3 E = {1.0f, 1.0f, 1.0f};
+        Vector3 B = {1.0f, 2.0f, 1.0f};
+
+        B[0] = sc->parameters[CellParams::PERBXVOL] + sc->parameters[CellParams::BGBXVOL];
+        B[1] = sc->parameters[CellParams::PERBYVOL] + sc->parameters[CellParams::BGBYVOL];
+        B[2] = sc->parameters[CellParams::PERBZVOL] + sc->parameters[CellParams::BGBZVOL];
+
+        E[0] = sc->parameters[CellParams::EXVOL];
+        E[1] = sc->parameters[CellParams::EYVOL];
+        E[2] = sc->parameters[CellParams::EZVOL];
+
+        Matrix3x3 R = build_rotation_matrix(E, B);
+//	std::cout << "Rotation matrix R:\n";
+//	for (int i=0; i<3; i++) {
+//	    std::cout << R[i][0] << " " << R[i][1] << " " << R[i][2] << "\n";
+//	}
+
+//    LIMITS for the old implementation of rotation	
+//    std::vector<float>  lin_x = linspace(vdf_struct.v_limits[0], vdf_struct.v_limits[3], vdf_struct.shape[0]);
+//    std::vector<float>  lin_y = linspace(vdf_struct.v_limits[1], vdf_struct.v_limits[4], vdf_struct.shape[1]);
+//    std::vector<float>  lin_z = linspace(vdf_struct.v_limits[2], vdf_struct.v_limits[5], vdf_struct.shape[2]);
+    // 1. Calculate new limits and axes
+    float max_abs_v = std::max({
+        std::abs(vdf_struct.v_limits[0]), std::abs(vdf_struct.v_limits[3]),
+        std::abs(vdf_struct.v_limits[1]), std::abs(vdf_struct.v_limits[4]),
+        std::abs(vdf_struct.v_limits[2]), std::abs(vdf_struct.v_limits[5])
+    });
+    float scale_factor = 1.3f;
+    float new_limit = max_abs_v * scale_factor;
+
+    std::array<float, 6> new_v_limits = {
+        -new_limit, -new_limit, -new_limit,
+         new_limit,  new_limit,  new_limit
+    };
+
+    auto nx = vdf_struct.shape[0];
+    auto ny = vdf_struct.shape[1];
+    auto nz = vdf_struct.shape[2];
+
+    auto lin_x = linspace(new_v_limits[0], new_v_limits[3], nx);
+    auto lin_y = linspace(new_v_limits[1], new_v_limits[4], ny);
+    auto lin_z = linspace(new_v_limits[2], new_v_limits[5], nz);
+
+//	std::cout << "v_limits: ";
+//	for (auto v : vdf_struct.v_limits) std::cout << v << " ";
+//	std::cout << "\n";
+
+//	std::cout << "lin_x size: " << lin_x.size() << " values: ";
+//	for (auto x : lin_x) std::cout << x << " ";
+//	std::cout << "\n";
+
+    // 2. Compute inverse rotation matrix (transpose of R for rotation matrices)
+    std::array<std::array<float, 3>, 3> R_inv;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j)
+        R_inv[i][j] = R[j][i];
+
+    // 3. For each point in new grid:
+    for (size_t i = 0; i < nx; ++i) {
+        for (size_t j = 0; j < ny; ++j) {
+            for (size_t k = 0; k < nz; ++k) {
+                // Coordinate in rotated frame
+                float vx_rot = lin_x[i];
+                float vy_rot = lin_y[j];
+                float vz_rot = lin_z[k];
+
+                // Apply inverse rotation to get original frame velocity
+                float vx_orig = R_inv[0][0] * vx_rot + R_inv[0][1] * vy_rot + R_inv[0][2] * vz_rot;
+                float vy_orig = R_inv[1][0] * vx_rot + R_inv[1][1] * vy_rot + R_inv[1][2] * vz_rot;
+                float vz_orig = R_inv[2][0] * vx_rot + R_inv[2][1] * vy_rot + R_inv[2][2] * vz_rot;
+
+                // Interpolate in original VDF
+                rotated_vdf.vdf_vals[idx(rotated_vdf, i, j, k)] = trilinear_interpolate(vdf_struct, vx_orig, vy_orig, vz_orig);
+            }
+        }
+    }    
+
+    return rotated_vdf;
+}
+
+//} // end Hermite namespace
+
+HERMITE::HermSpectrum HERMITE::getHERMITE_VDFRot(spatial_cell::SpatialCell* sc, HERMITE::OrderedVDF original_vdf ){
+
+  	HERMITE::HermSpectrum SpectrStruct;
+        Vector3 E = {1.0f, 1.0f, 1.0f};
+        Vector3 B = {1.0f, 2.0f, 1.0f};
+
+        B[0] = sc->parameters[CellParams::PERBXVOL] + sc->parameters[CellParams::BGBXVOL];
+        B[1] = sc->parameters[CellParams::PERBYVOL] + sc->parameters[CellParams::BGBYVOL];
+        B[2] = sc->parameters[CellParams::PERBZVOL] + sc->parameters[CellParams::BGBZVOL];
+
+        E[0] = sc->parameters[CellParams::EXVOL];
+        E[1] = sc->parameters[CellParams::EYVOL];
+        E[2] = sc->parameters[CellParams::EZVOL];
+
+        Matrix3x3 R = build_rotation_matrix(E, B);        
+	auto rotated_vdf = rotate_vdf(original_vdf, R);
+
+	int order = 22;
+	auto u_rot = get_drift_velocity(rotated_vdf);
+	auto vth_rot = get_thermal_velocity(rotated_vdf, u_rot);
+	std::vector<float> spectrum_rot = hermite_spectra_3d(rotated_vdf, order, vth_rot, u_rot);	
+
+	return HERMITE::HermSpectrum{.N_hermite_harmonic = order, .vth = vth_rot, .u = u_rot, .Spectrum = spectrum_rot};	
+}
+
+
+
+
+
