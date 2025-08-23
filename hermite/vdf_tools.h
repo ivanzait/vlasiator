@@ -98,6 +98,8 @@ namespace HERMITE {
       }
    };
 
+
+
 ////// V COOORDINATES - DO I NEED ???
    struct VCoords {
       Real vx, vy, vz;
@@ -106,7 +108,7 @@ namespace HERMITE {
    };
 
 ////// E,B fields
-   struct EBat {
+   struct EandB {
    std::array<float, 3> B = {0.0f, 0.0f, 0.0f};
    std::array<float, 3> E = {0.0f, 0.0f, 0.0f};
    bool save_to_file(const char* filename) const noexcept {
@@ -122,16 +124,26 @@ namespace HERMITE {
    }; // end structure
 
 
-EBat dropB(spatial_cell::SpatialCell* sc);
+
 OrderedVDF extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed( spatial_cell::SpatialCell* sc, uint popID,int zoom);
-OrderedVDF rotate_vdf4cell(OrderedVDF vdf_struct,  spatial_cell::SpatialCell* sc);
+
+std::vector<int> loadIndices(const std::string& filename);
+bool isSpecialCell(int c, const std::vector<int>& indices);
+
+EandB getEandB(spatial_cell::SpatialCell* sc);
+OrderedVDF getRotatedVDF(OrderedVDF vdfdata, EandB eb);
+
 HermSpectrum getHermiteSpectra(OrderedVDF vdfdata);
-HermSpectrum getSpectrumRot(spatial_cell::SpatialCell* sc, HermSpectrum SpectrStruct );
-OrderedVDF hermite_transform_back_and_forth(OrderedVDF vdfdata);
-HermSpectrum getHERMITE_VDFRot(spatial_cell::SpatialCell* sc, HERMITE::OrderedVDF original_vdf );
-int overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const OrderedVDF& vdf);
+// HermSpectrum getSpectrumRot(spatial_cell::SpatialCell* sc, HermSpectrum SpectrStruct );
+// OrderedVDF hermite_transform_back_and_forth(OrderedVDF vdfdata);
+// HermSpectrum getHERMITE_VDFRot(spatial_cell::SpatialCell* sc, HERMITE::OrderedVDF original_vdf );
+// int overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const OrderedVDF& vdf);
 
 } // End Hermite namespace 
+
+
+
+
 
 
 

@@ -833,56 +833,62 @@ int simulate(int argn,char* args[]) {
 
       // Hermite VDF Compression
       MPI_Barrier(MPI_COMM_WORLD);
-      phiprof::Timer compression_interface{"asterix-compression"};
+      phiprof::Timer compression_interface{"hermite-compression"};
       const bool compressNow = hermite_time + P::dt >= P::hermite_interval;
       if (compressNow) {
 
          logFile << "(HERMITE)  at " << P::tstep << " t = " << P::t << " dt = "  << endl;
-         hermite_time = 0.0f;
-         // Hermite
+         hermite_time = 0.0f;        
          phiprof::Timer hermiteTimer{"Hermite-Reconstruction"};
-         auto local_cells = getLocalCells();
+        
+	 auto local_cells = getLocalCells();
+	
+//       	 std::vector<int> specialCells = HERMITE::loadIndices("/scratch/project_2000203/zaitsevi/special_cells.txt");
+
+   	 std::vector<int> specialCells_sw = HERMITE::loadIndices("/scratch/project_2000203/zaitsevi/bchlike_restart4hermite/preprocessing/sw_cells.txt");
+   	 std::vector<int> specialCells_cs = HERMITE::loadIndices("/scratch/project_2000203/zaitsevi/bchlike_restart4hermite/preprocessing/cs_cells.txt");
+
          #pragma omp parallel for 
          for (const auto& c : local_cells) {
+	 if (HERMITE::isSpecialCell(c, specialCells_sw) || HERMITE::isSpecialCell(c, specialCells_cs) ){
+	 std::string label = HERMITE::isSpecialCell(c, specialCells_sw) ? "SW" : "CS";
+	
+//  if (HERMITE::isSpecialCell(c, specialCells_sw) ){
+// 	 label="SW";
+// 	 }else{ 
+// 	 label="CS";
+// 	 }
             SpatialCell* sc = mpiGrid[c];
             constexpr uint pop_id = 0;
 	    
-	 // Extract field and save to file with descriptive naming
-	const HERMITE::EBat eb = HERMITE::dropB(sc);
-	const std::string filename = "EBat_" + std::to_string(P::tstep) +
-                             "_cell_" + std::to_string(c) + ".bin";
-	if (!eb.save_to_file(filename.c_str())) {
-	    std::cerr << "[ERROR] Failed to save EBat to " << filename << std::endl;
-	}
-            // extract vdf
-            HERMITE::OrderedVDF vdf = HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, pop_id, 1);
-            const std::string vdfname = "vdf_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
-            vdf.save_to_file(vdfname.c_str());
-            //  get Hermite spectra
-            //const HERMITE::HermSpectrum spectrum = HERMITE::getHermiteSpectra(vdf);
-            //const std::string spectrname ="spectrum_t_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
-            //spectrum.save_to_file(spectrname.c_str());
+	 // Extract fields
+	const HERMITE::EandB eb = HERMITE::getEandB(sc);
+	//const std::string filename = "EBat_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
+	//eb.save_to_file(filename.c_str());
+	
+         // Extract vdf
+         const HERMITE::OrderedVDF vdf = HERMITE::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, pop_id, 1);
+         const std::string vdfname = label + "vdf_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
+         vdf.save_to_file(vdfname.c_str());
+	
+	 // Rotate vdf
+	 HERMITE::OrderedVDF vdf_rot = HERMITE::getRotatedVDF(vdf, eb);
+  	 std::string vdfrotname = label + "vdf_rot_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
+	 vdf_rot.save_to_file(vdfrotname.c_str());
 
+         // Hermite spectra
+         const HERMITE::HermSpectrum spectrum = HERMITE::getHermiteSpectra(vdf_rot);
+         const std::string spectrname = label + "spectrum_t_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
+         spectrum.save_to_file(spectrname.c_str());
 
-	// rotate vdf
-	HERMITE::OrderedVDF vdf_rot=HERMITE::rotate_vdf4cell(vdf, sc);
-	const std::string vdfnameR = "vdf_ROT_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
-        vdf_rot.save_to_file(vdfnameR.c_str());
-
-	    // get ROTATED Hermite spectra
-//	    HERMITE::HermSpectrum spectrum_rot = HERMITE::getHERMITE_VDFRot(sc, vdf);
-	    // rotate spectra
-	//    HERMITE::HermSpectrum spectrum_rotated = HERMITE::getSpectrumRot(sc, spectrum);
-//	    const std::string spectrnameR ="spectrum_Rot_t_" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + ".bin";
-//	    spectrum_rot.save_to_file(spectrnameR.c_str());
-
-         //   // OVERWRITING RECONSTRUCTED VDF !!!
+            // OVERWRITING RECONSTRUCTED VDF !!!
          //    const auto vdf_recon = HERMITE::hermite_transform_back_and_forth(vdf);
          //    std::string vdf_recon_name =
          //       "vdf_tstep" + std::to_string(P::tstep) + "_cell_" + std::to_string(c) + "_reconstructed.bin";
          //   vdf_recon.save_to_file(vdf_recon_name.c_str());
          //   HERMITE::overwrite_pop_spatial_cell_vdf(sc, pop_id, vdf_recon);
-         }
+        	}
+	 }
          hermiteTimer.stop();
       }
       hermite_time+=P::dt;
