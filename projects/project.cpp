@@ -36,6 +36,7 @@
 #include "Flowthrough/Flowthrough.h"
 #include "Fluctuations/Fluctuations.h"
 #include "Harris/Harris.h"
+#include "Reconnection/Reconnection.h"
 #include "KHB/KHB.h"
 #include "Larmor/Larmor.h"
 #include "Magnetosphere/Magnetosphere.h"
@@ -691,6 +692,9 @@ Project* createProject() {
 
     } else if (Parameters::projectName=="Harris") {
         project=new projects::Harris();
+
+    } else if (Parameters::projectName=="Reconnection") {
+        project=new projects::Reconnection();
 
     } else if (Parameters::projectName=="Riemann1") {
         project=new projects::Riemann1();
