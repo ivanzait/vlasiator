@@ -48,27 +48,11 @@ bool Reconnection::initialize(void) { return Project::initialize(); }
 // ---------------------------------------------------------------------------
 void Reconnection::addParameters() {
    typedef Readparameters RP;
-   RP::add<Real>("Reconnection.lambda",
-           "Current-sheet half-thickness (m)",
-           this->lambda,
-           226284.5); // ~ 1 d_i for n=1e7, B=10 nT
-   RP::add<Real>("Reconnection.Bx0",
-           "Lobe (asymptotic) magnetic field magnitude Bx (T)",
-           this->Bx0,
-           1.0e-8);
-   RP::add<Real>("Reconnection.By0",
-           "Guide field By (T); 0 = anti-parallel reconnection",
-           this->By0,
-           0.0);
-   RP::add<Real>("Reconnection.Bz0",
-           "Initial normal field Bz (T); usually 0",
-           this->Bz0,
-           0.0);
-   RP::add<Real>("Reconnection.Psi0",
-           "Perturbation amplitude of the magnetic flux function (T*m); "
-           "psi = Psi0*cos(2pi*x/Lx)*cos(pi*z/Lz)",
-           this->Psi0,
-           0.0);
+   RP::add<Real>("Reconnection.lambda", "Current-sheet half-thickness (m)", this->lambda, 226284.5);
+   RP::add<Real>("Reconnection.Bx0",  "asymptotic magnetic field",  this->Bx0,  1.0e-8);
+   RP::add<Real>("Reconnection.By0",  "Guide field ", this->By0,  0.0);
+   RP::add<Real>("Reconnection.Bz0", "Initial normal field Bz ", this->Bz0,  0.0);
+   RP::add<Real>("Reconnection.Psi0",  "Perturbation amplitude of the magnetic flux function (T*m)",  this->Psi0, 0.0);
 
    // Per-population parameters
    for (uint i = 0; i < getObjectWrapper().particleSpecies.size(); i++) {
@@ -76,16 +60,14 @@ void Reconnection::addParameters() {
       ReconnectionSpeciesParameters* sP = new ReconnectionSpeciesParameters();
       speciesParamsRead.push_back(sP);
 
-      RP::add<Real>(pop + "_Reconnection.n",
-              "Peak number density (m^-3)", sP->n, 1.0e7);
-      RP::add<Real>(pop + "_Reconnection.T",
-              "Temperature (K)", sP->T, 2.0e6);
-      RP::add<Real>(pop + "_Reconnection.n_bg_frac",
-              "Background density fraction n_bg/n0 (dimensionless)", sP->n_bg_frac, 0.2);
-      RP::add<Real>(pop + "_Reconnection.nSpaceSamples",
-              "Number of spatial sampling points per dimension", sP->nSpaceSamples, 1);
-      RP::add<Real>(pop + "_Reconnection.nVelocitySamples",
-              "Number of velocity sampling points per dimension", sP->nVelocitySamples, 1);
+      RP::add<Real>(pop + "_Reconnection.n",  "Peak number density (m^-3)", sP->n, 1.0e7);
+      RP::add<Real>(pop + "_Reconnection.T",  "Temperature (K)", sP->T, 2.0e6);
+      RP::add<Real>(pop + "_Reconnection.n_bg_frac" ,  "Background density fraction n_bg/n0 (dimensionless)", sP->n_bg_frac, 0.2);
+      RP::add<Real>(pop + "_Reconnection.nSpaceSamples",  "Number of spatial sampling points per dimension", sP->nSpaceSamples, 1);
+      RP::add<Real>(pop + "_Reconnection.nVelocitySamples",  "Number of velocity sampling points per dimension", sP->nVelocitySamples, 1);
+      RP::add<Real>(pop + "_Reconnection.VX0",  "Drift Vx", sP->VX0, 0.0);
+      RP::add<Real>(pop + "_Reconnection.VY0",  "Drift Vy", sP->VY0, 20000.0);
+      RP::add<Real>(pop + "_Reconnection.VZ0",  "Drift Vz", sP->VZ0, 0.0);
    }
 }
 
@@ -116,8 +98,14 @@ Realf Reconnection::fillPhaseSpace(spatial_cell::SpatialCell* cell,
    const Real z       = cell->parameters[CellParams::ZCRD] + 0.5 * cell->parameters[CellParams::DZ];
    const Real initRho = getDensity(z, popID);
    const Real initT   = sP.T;
+
    // Bulk velocity is zero everywhere initially
-   const Real V0X = 0.0, V0Y = 0.0, V0Z = 0.0;
+   //   const Real V0X = 0.0, V0Y = 0.0, V0Z = 0.0;
+
+      const Real initV0X = sP.VX0;
+      const Real initV0Y = sP.VY0*1.0 / std::cosh(z / lambda) ;
+      const Real initV0Z = sP.VZ0;
+
 
 #ifdef USE_GPU
    vmesh::VelocityMesh* vmesh = cell->dev_get_velocity_mesh(popID);
@@ -146,9 +134,9 @@ Realf Reconnection::fillPhaseSpace(spatial_cell::SpatialCell* cell,
          creal dvzCell = blockCoords[5];
 
          ARCH_INNER_BODY(i, j, k, initIndex, lsum) {
-            creal vx = vxBlock + (i + 0.5) * dvxCell - V0X;
-            creal vy = vyBlock + (j + 0.5) * dvyCell - V0Y;
-            creal vz = vzBlock + (k + 0.5) * dvzCell - V0Z;
+            creal vx = vxBlock + (i + 0.5) * dvxCell - initV0X;
+            creal vy = vyBlock + (j + 0.5) * dvyCell - initV0Y;
+            creal vz = vzBlock + (k + 0.5) * dvzCell - initV0Z;
             const Realf value = MaxwellianPhaseSpaceDensity(vx, vy, vz, initT, initRho, mass);
             bufferData[initIndex * WID3 + k * WID2 + j * WID + i] = value;
          };
@@ -178,7 +166,7 @@ void Reconnection::calcCellParameters(spatial_cell::SpatialCell* cell, creal& t)
 
 // ---------------------------------------------------------------------------
 // getV0: bulk velocity hint for TriAxisSearch block allocation.
-// Zero bulk velocity everywhere.
+// Shifted Maxwellian for the Y component - current carrying velocity
 std::vector<std::array<Real, 3>> Reconnection::getV0(
    creal x, creal y, creal z, const uint popID) const {
    std::vector<std::array<Real, 3>> V0;

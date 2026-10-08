@@ -54,6 +54,9 @@ struct ReconnectionSpeciesParameters {
    Real n_bg_frac;   // Background density fraction (n_bg = n_bg_frac * n)
    Real nSpaceSamples;
    Real nVelocitySamples;
+   Real VX0;
+   Real VY0;
+   Real VZ0;
 };
 
 class Reconnection : public TriAxisSearch {
