@@ -49,14 +49,13 @@
 namespace projects {
 
 struct ReconnectionSpeciesParameters {
-   Real T;           // Temperature [K]
-   Real n;           // Peak number density [m^-3]
+   Real n;           // Temperature [K]
+   Real T;           // Peak number density [m^-3]
    Real n_bg_frac;   // Background density fraction (n_bg = n_bg_frac * n)
+   Real T_bg_frac;
+   Real Ui;
    Real nSpaceSamples;
    Real nVelocitySamples;
-   Real VX0;
-   Real VY0;
-   Real VZ0;
 };
 
 class Reconnection : public TriAxisSearch {

@@ -65,9 +65,11 @@ void Reconnection::addParameters() {
       RP::add<Real>(pop + "_Reconnection.n_bg_frac" ,  "Background density fraction n_bg/n0 (dimensionless)", sP->n_bg_frac, 0.2);
       RP::add<Real>(pop + "_Reconnection.nSpaceSamples",  "Number of spatial sampling points per dimension", sP->nSpaceSamples, 1);
       RP::add<Real>(pop + "_Reconnection.nVelocitySamples",  "Number of velocity sampling points per dimension", sP->nVelocitySamples, 1);
-      RP::add<Real>(pop + "_Reconnection.VX0",  "Drift Vx", sP->VX0, 0.0);
-      RP::add<Real>(pop + "_Reconnection.VY0",  "Drift Vy", sP->VY0, 20000.0);
-      RP::add<Real>(pop + "_Reconnection.VZ0",  "Drift Vz", sP->VZ0, 0.0);
+    //  RP::add<Real>(pop + "_Reconnection.VX0",  "Drift Vx", sP->VX0, 0.0);
+    //  RP::add<Real>(pop + "_Reconnection.VY0",  "Drift Vy", sP->VY0, 20000.0);
+    //  RP::add<Real>(pop + "_Reconnection.VZ0",  "Drift Vz", sP->VZ0, 0.0);
+      RP::add<Real>(pop + "_Reconnection.Ui", "Сurrent carrying ion velocity", sP->Ui, 20000.0);
+      RP::add<Real>(pop + "_Reconnection.T_bg_frac", "Background temperature fraction T_bg/T (dimensionless)",  sP->T_bg_frac, 0.1);
    }
 }
 
@@ -83,7 +85,7 @@ void Reconnection::getParameters() {
 Real Reconnection::getDensity(creal z, const uint popID) const {
    const ReconnectionSpeciesParameters& sP = speciesParams[popID];
    const Real sech = 1.0 / std::cosh(z / lambda);
-   return sP.n * (sech * sech + sP.n_bg_frac);
+   return sP.n * (sech * sech);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,17 +96,15 @@ Realf Reconnection::fillPhaseSpace(spatial_cell::SpatialCell* cell,
                                    const uint nRequested) const {
    const ReconnectionSpeciesParameters& sP = speciesParams[popID];
    const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+   const Real z    = cell->parameters[CellParams::ZCRD] + 0.5 * cell->parameters[CellParams::DZ];
 
-   const Real z       = cell->parameters[CellParams::ZCRD] + 0.5 * cell->parameters[CellParams::DZ];
-   const Real initRho = getDensity(z, popID);
-   const Real initT   = sP.T;
+   const Real n_sheet = getDensity(z, popID);
+   const Real n_bg = sP.n * sP.n_bg_frac;
 
-   // Bulk velocity is zero everywhere initially
-   //   const Real V0X = 0.0, V0Y = 0.0, V0Z = 0.0;
+   const Real T_sheet   = sP.T;
+   const Real T_bg = sP.T * sP.T_bg_frac;
 
-      const Real initV0X = sP.VX0;
-      const Real initV0Y = sP.VY0*1.0 / std::cosh(z / lambda) ;
-      const Real initV0Z = sP.VZ0;
+   const Real Ui     = sP.Ui;
 
 
 #ifdef USE_GPU
@@ -134,11 +134,15 @@ Realf Reconnection::fillPhaseSpace(spatial_cell::SpatialCell* cell,
          creal dvzCell = blockCoords[5];
 
          ARCH_INNER_BODY(i, j, k, initIndex, lsum) {
-            creal vx = vxBlock + (i + 0.5) * dvxCell - initV0X;
-            creal vy = vyBlock + (j + 0.5) * dvyCell - initV0Y;
-            creal vz = vzBlock + (k + 0.5) * dvzCell - initV0Z;
-            const Realf value = MaxwellianPhaseSpaceDensity(vx, vy, vz, initT, initRho, mass);
+            creal vx = vxBlock + (i + 0.5) * dvxCell ;
+            creal vy = vyBlock + (j + 0.5) * dvyCell ;
+            creal vz = vzBlock + (k + 0.5) * dvzCell ;
+
+            const Realf value = MaxwellianPhaseSpaceDensity(vx, vy - Ui, vz,  T_sheet, n_sheet, mass)
+		    + MaxwellianPhaseSpaceDensity(vx,   vy,    vz,  T_bg,    n_bg,    mass);
+
             bufferData[initIndex * WID3 + k * WID2 + j * WID + i] = value;
+	    lsum[0] += value;
          };
       },
       rhosum);
