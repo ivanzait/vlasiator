@@ -33,6 +33,7 @@
 #include <ctime>
 #include <cstring>
 #include <array>
+#include <optional>
 #include <algorithm>
 #include <limits>
 #include <initializer_list>
@@ -42,6 +43,7 @@
 #include "datareduction/datareductionoperator.h"
 #include "iowrite.h"
 #include "vdf_compression/compression.h"
+#include "vdf_compression/hermite_cell.h"
 #include "math.h"
 #include "grid.h"
 #include "phiprof.hpp"
@@ -68,6 +70,10 @@ bool writeVelocityDistributionData(const uint popID, Writer& vlsvWriter,
 bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                                    const std::vector<CellID>& cells,std::vector<std::vector<char>>&mpl_bytes,MPI_Comm comm);
+
+bool writeVelocityDistributionDataHermite(const uint popID, Writer& vlsvWriter,
+                                          dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                          const std::vector<CellID>& cells, MPI_Comm comm);
 
 
 /*! Updates local ids across MPI to let other processes know in which order this process saves the local cell ids
@@ -148,6 +154,28 @@ bool writeVelocityDistributionDataAsterix(Writer& vlsvWriter,
    bool success = true;
    for (size_t p=0; p<getObjectWrapper().particleSpecies.size(); ++p) {
       if (writeVelocityDistributionDataAsterix(p,vlsvWriter,mpiGrid,cells,mlp_bytes,comm) == false) success = false;
+   }
+   return success;
+}
+
+/** Writes Hermite spectra instead of velocity blocks for all populations (bulk output only).
+ @param vlsvWriter Some vlsv writer with a file open.
+ @param mpiGrid Vlasiator's grid.
+ @param cells Vector of local cells within this process (no ghost cells).
+ @param comm The MPI communicator.
+ @return Returns true if operation was successful.*/
+bool writeVelocityDistributionDataHermite(Writer& vlsvWriter,
+                                          dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                          const vector<CellID>& cells, MPI_Comm comm) {
+   // Same file parameter as the other Asterix writers, so readers can tell what the file contains.
+   const int cmp = P::vdf_compression_method;
+   if (!vlsvWriter.writeParameter("COMPRESSION", &cmp)) {
+      logFile << "ERROR: Failed to write COMPRESSION parameter in vlsv file" << endl << write;
+      return false;
+   }
+   bool success = true;
+   for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+      if (writeVelocityDistributionDataHermite(popID, vlsvWriter, mpiGrid, cells, comm) == false) success = false;
    }
    return success;
 }
@@ -776,6 +804,158 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
       logFile << "(MAIN) writeGrid: ERROR occurred when writing BLOCKVARIABLE f" << endl << writeVerbose;
    }
    return success;
+}
+
+/** Writes the adaptive Hermite spectra of one population instead of its velocity blocks.
+ *
+ * File layout (all arrays have attributes mesh="SpatialGrid", name=<population>):
+ *  - CELLSWITHHERMITE uint64  x1  ids of the cells that were successfully transformed
+ *  - HERMITEORDER     uint32  x1  number of Hermite shells kept per listed cell
+ *  - HERMITEMETA      float32 x11 per listed cell, columns in this order:
+ *                                 ux, uy, uz, vth, delta, vxmin, vxmax, vymin, vymax, vzmin, vzmax
+ *                                 ux..uz [m/s] bulk velocity; vth = sqrt((Pxx+Pyy+Pzz)/(3n)) [m/s] the single isotropic
+ *                                 thermal velocity; delta the Parseval delta at the kept order. v?min/v?max: bounding
+ *                                 box of the velocity blocks present in the cell in GLOBAL velocity-mesh CELL indices,
+ *                                 min inclusive, max EXCLUSIVE (block aligned, multiples of WID), stored as float32
+ *                                 (exact up to 2^24). Global cell i has its centre at meshMinLimits + (i + 0.5) *
+ *                                 cellSize, the same as MESH_NODE_CRDS[i] + 0.5 * dv. The reconstruction is meant to be
+ *                                 zeroed outside this box.
+ *  - HERMITECOEFFS    float32 x1  ragged: n_coeffs(order) = order(order+1)(order+2)/6 coefficients per listed cell,
+ *                                 in the canonical order of vdf_compression/hermite.h (shell s ascending; l, m
+ *                                 ascending; n=s-l-m); attributes version="2", basis="orthonormal_hermite_functions",
+ *                                 ordering="shell_l_m_n", scaling="linear"
+ * Format history: version 1 = HERMITEMETA with 5 columns (ux..delta, no bounding box); version 2 = HERMITEMETA with
+ * 11 columns as above. (A short-lived intermediate layout had a separate HERMITEBBOX array; it is not produced any more.)
+ * plus the velocity mesh definition (MESH_BBOX, MESH_NODE_CRDS_X/Y/Z of mesh <population>) so a
+ * reader can recover the cell-centre velocity coordinates. No BLOCKIDS / BLOCKVARIABLE /
+ * CELLSWITHBLOCKS / BLOCKSPERCELL are written. Cells for which the transform fails are omitted. */
+bool writeVelocityDistributionDataHermite(const uint popID, Writer& vlsvWriter,
+                                          dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                          const std::vector<CellID>& cells, MPI_Comm comm) {
+#ifdef USE_GPU
+   logFile << "ERROR: Hermite VDF output is not supported in GPU builds" << endl << write;
+   return false;
+#else
+   map<string, string> attribs;
+   const string popName = getObjectWrapper().particleSpecies[popID].name;
+   const string spatMeshName = "SpatialGrid";
+   bool success = true;
+
+   // Transform all local cells. compute_hermite_cell only reads the cell, so threads are independent.
+   phiprof::Timer transformTimer{"hermite-transform"};
+   std::vector<std::optional<ASTERIX::HermiteCell>> spectra(cells.size());
+   const int maxOrder = P::hermite_max_order;
+   const double tolerance = P::hermite_tolerance;
+#pragma omp parallel for schedule(dynamic)
+   for (size_t i = 0; i < cells.size(); ++i) {
+      spectra[i] = ASTERIX::compute_hermite_cell(mpiGrid[cells[i]], popID, maxOrder, tolerance);
+   }
+   transformTimer.stop();
+
+   // Gather the per-cell arrays of the successfully transformed cells (in cell order); coefficients stay in `spectra`.
+   std::vector<uint64_t> ids;
+   std::vector<uint32_t> orders;
+   std::vector<float> meta;
+   std::vector<const ASTERIX::HermiteCell*> kept;
+   uint64_t orderSum = 0, coeffFloats = 0;
+   double deltaSum = 0.0;
+   for (size_t i = 0; i < cells.size(); ++i) {
+      if (!spectra[i]) continue;
+      const ASTERIX::HermiteCell& cell = *spectra[i];
+      ids.push_back(cells[i]);
+      orders.push_back(static_cast<uint32_t>(cell.order_used));
+      meta.insert(meta.end(), cell.meta.begin(), cell.meta.end());
+      // meta[5 + 2d] = v?min, meta[6 + 2d] = v?max (exclusive): block aligned and non-empty.
+      for (int d = 0; d < 3; ++d) {
+         const float lo = cell.meta[5 + 2 * d], hi = cell.meta[6 + 2 * d];
+         assert(std::fmod(lo, static_cast<float>(WID)) == 0.f && std::fmod(hi, static_cast<float>(WID)) == 0.f && lo < hi);
+      }
+      kept.push_back(&cell);
+      orderSum += cell.order_used;
+      deltaSum += cell.meta[4];
+      coeffFloats += cell.coeffs.size();
+   }
+
+   phiprof::Timer writeTimer{"hermite-write"};
+   attribs["mesh"] = spatMeshName;
+   attribs["name"] = popName;
+   const unsigned int vectorSize = 1;
+   if (!vlsvWriter.writeArray("CELLSWITHHERMITE", attribs, ids.size(), vectorSize, ids.data())) success = false;
+   if (!vlsvWriter.writeArray("HERMITEORDER", attribs, orders.size(), vectorSize, orders.data())) success = false;
+   if (!vlsvWriter.writeArray("HERMITEMETA", attribs, ids.size(), 11u, meta.data())) success = false;
+   if (success == false) logFile << "(MAIN) writeGrid: ERROR failed to write Hermite cell arrays to file!" << endl << writeVerbose;
+
+   // Ragged coefficient array, written like BLOCKVARIABLE.
+   {
+      map<string, string> coeffAttribs = attribs;
+      coeffAttribs["version"] = "2";
+      coeffAttribs["basis"] = "orthonormal_hermite_functions";
+      coeffAttribs["ordering"] = "shell_l_m_n";
+      coeffAttribs["scaling"] = "linear";
+      vlsvWriter.startMultiwrite<float>(coeffFloats, vectorSize);
+      for (const ASTERIX::HermiteCell* cell : kept) {
+         vlsvWriter.addMultiwriteUnit(cell->coeffs.data(), cell->coeffs.size());
+      }
+      if (kept.empty()) {
+         vlsvWriter.addMultiwriteUnit(static_cast<const float*>(nullptr), 0); // Dummy write to avoid hang in end multiwrite
+      }
+      vlsvWriter.endMultiwrite("HERMITECOEFFS", coeffAttribs);
+   }
+
+   // Velocity mesh definition (see writeVelocityDistributionData): needed to recover cell-centre velocities.
+   uint64_t bbox[6];
+   const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
+   const auto& mesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+   for (int d = 0; d < 3; ++d) {
+      bbox[d] = mesh.gridLength[d];
+      bbox[d + 3] = mesh.blockLength[d];
+   }
+   attribs.clear();
+   attribs["mesh"] = popName;
+   attribs["type"] = vlsv::mesh::STRING_UCD_AMR;
+   attribs["max_velocity_ref_level"] = "0";
+   if (mpiGrid.get_rank() == MASTER_RANK) {
+      if (vlsvWriter.writeArray("MESH_BBOX", attribs, 6, 1, bbox) == false) success = false;
+      const char* names[3] = {"MESH_NODE_CRDS_X", "MESH_NODE_CRDS_Y", "MESH_NODE_CRDS_Z"};
+      for (int crd = 0; crd < 3; ++crd) {
+         const size_t N_nodes = bbox[crd] * bbox[crd + 3] + 1;
+         std::vector<Real> crds(N_nodes);
+         const Real dV = mesh.cellSize[crd];
+         for (size_t i = 0; i < N_nodes; ++i) crds[i] = mesh.meshMinLimits[crd] + i * dV;
+         if (vlsvWriter.writeArray(names[crd], attribs, N_nodes, 1, crds.data()) == false) success = false;
+      }
+   } else {
+      if (vlsvWriter.writeArray("MESH_BBOX", attribs, 0, 1, bbox) == false) success = false;
+      Real* crds = NULL;
+      if (vlsvWriter.writeArray("MESH_NODE_CRDS_X", attribs, 0, 1, crds) == false) success = false;
+      if (vlsvWriter.writeArray("MESH_NODE_CRDS_Y", attribs, 0, 1, crds) == false) success = false;
+      if (vlsvWriter.writeArray("MESH_NODE_CRDS_Z", attribs, 0, 1, crds) == false) success = false;
+   }
+   writeTimer.stop();
+
+   // One INFO line per population and write: transformed cells, mean order / delta, coefficient vs dense bytes.
+   uint64_t denseBlocks = 0;
+   for (size_t i = 0; i < cells.size(); ++i) denseBlocks += mpiGrid[cells[i]]->get_number_of_velocity_blocks(popID);
+   const uint64_t localCounts[3] = {ids.size(), coeffFloats * sizeof(float), denseBlocks * WID3 * sizeof(Realf)};
+   const double localSums[2] = {static_cast<double>(orderSum), deltaSum};
+   uint64_t globalCounts[3] = {0, 0, 0};
+   double globalSums[2] = {0.0, 0.0};
+   MPI_Reduce(localCounts, globalCounts, 3, MPI_UINT64_T, MPI_SUM, MASTER_RANK, comm);
+   MPI_Reduce(localSums, globalSums, 2, MPI_DOUBLE, MPI_SUM, MASTER_RANK, comm);
+   if (mpiGrid.get_rank() == MASTER_RANK) {
+      const double n = std::max<uint64_t>(globalCounts[0], 1);
+      logFile << "(IO) INFO: Hermite VDF output, population " << popName << ": " << globalCounts[0] << " of "
+              << cells.size() << " (rank 0) cells transformed, mean order " << globalSums[0] / n << ", mean delta "
+              << globalSums[1] / n << ", coefficient bytes " << globalCounts[1] << " vs dense block bytes "
+              << globalCounts[2] << endl << write;
+   }
+
+   if (globalSuccess(success, "(MAIN) writeGrid: ERROR: Failed to write Hermite velocity distribution data", MPI_COMM_WORLD) == false) {
+      vlsvWriter.close();
+      return false;
+   }
+   return success;
+#endif
 }
 
 /*! Writes info received from data reducer. This function writes out the variable arrays into the file
@@ -1773,7 +1953,10 @@ bool writeVelocitySpace(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
    MPI_Allreduce(&localNumVelSpaceCells, &numVelSpaceCells, 1, MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
    bool ok = false;
    // Compress
-   if (P::systemWriteDistributionCompressed) {
+   if (P::systemWriteDistributionCompressed && P::vdf_compression_method == P::ASTERIX_COMPRESSION_METHODS::HERMITE) {
+      // Hermite spectra replace the VDF blocks in bulk files
+      ok = writeVelocityDistributionDataHermite(vlsvWriter, mpiGrid, velSpaceCells, MPI_COMM_WORLD);
+   } else if (P::systemWriteDistributionCompressed) {
       std::vector<std::vector<char>> mlp_clustered_bytes;
       phiprof::Timer compression_interface{"asterix-compression"};
       const auto& local_cells_to_compress = getLocalCells();
@@ -2200,7 +2383,8 @@ bool writeRestart(
    // Note: restart should always write double values to ensure the accuracy of the restart runs.
    // In case of distribution data it is not as important as they are mainly used for visualization purpose
    bool ok = false;
-   if (compress_vdfs) {
+   // HERMITE is a bulk-only format: restart files always get the full dense VDFs.
+   if (compress_vdfs && P::vdf_compression_method != P::ASTERIX_COMPRESSION_METHODS::HERMITE) {
       std::vector<std::vector<char>> mlp_clustered_bytes;
       phiprof::Timer compression_interface{"asterix-compression"};
       //const auto& local_cells_to_compress = getLocalCells();

@@ -191,9 +191,11 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
    const Real target_dvx = dvx * ratio;
    const Real target_dvy = dvy * ratio;
    const Real target_dvz = dvz * ratio;
-   std::size_t nx = std::ceil((vlims[3] - vlims[0]) / target_dvx);
-   std::size_t ny = std::ceil((vlims[4] - vlims[1]) / target_dvy);
-   std::size_t nz = std::ceil((vlims[5] - vlims[2]) / target_dvz);
+   // vlims are min/max cell CENTRES, so the box spans (vmax-vmin)/dv + 1 cells.
+   // round() instead of ceil() keeps this robust against floating-point noise.
+   std::size_t nx = std::llround((vlims[3] - vlims[0]) / target_dvx) + 1;
+   std::size_t ny = std::llround((vlims[4] - vlims[1]) / target_dvy) + 1;
+   std::size_t nz = std::llround((vlims[5] - vlims[2]) / target_dvz) + 1;
    // printf("VDF min box is %zu , %zu %zu \n ", nx, ny, nz);
 
    std::unordered_set<vmesh::GlobalID> ignore_list;

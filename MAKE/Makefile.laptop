@@ -1,0 +1,50 @@
+# Apple clang + Homebrew libomp (Homebrew LLVM 20 is incompatible with the macOS 27 SDK)
+CMP = mpic++
+LNK = mpic++
+
+#======== Vectorization ==========
+# Apple Silicon has no AVX: use the generic fallback.
+VECTORCLASS = VEC_FALLBACK_GENERIC
+
+#===== Vector Lengths ====
+# Default for VEC_FALLBACK_GENERIC is WID=4, VECL=8
+WID=4
+VECL=8
+
+#======== Allocator =========
+CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE
+
+#======= Compiler and compilation flags =========
+# Libraries are built by: ./fetch_and_build_libraries.sh appleM1
+LIBRARY_PREFIX = $(CURDIR)/libraries-appleM1
+
+FLAGS =
+CXXFLAGS += -I$(LIBRARY_PREFIX)/include -I/opt/homebrew/opt/libomp/include -O3 -std=c++20 -Xpreprocessor -fopenmp -Wall -Wno-unused -g
+MATHFLAGS =
+testpackage: MATHFLAGS = # -fno-unsafe-math-optimizations
+LDFLAGS = -L/opt/homebrew/opt/libomp/lib -Wl,-rpath,/opt/homebrew/opt/libomp/lib -lomp -g
+LIB_MPI =
+
+#======== Libraries ===========
+
+INC_JEMALLOC = -I $(LIBRARY_PREFIX)/include
+LIB_JEMALLOC = $(LIBRARY_PREFIX)/lib/libjemalloc.a
+
+INC_ZOLTAN = -I $(LIBRARY_PREFIX)/include
+LIB_ZOLTAN = -L $(LIBRARY_PREFIX)/lib -lzoltan
+
+INC_VLSV = -I $(LIBRARY_PREFIX)/include
+LIB_VLSV = -L $(LIBRARY_PREFIX)/lib -lvlsv
+
+INC_PAPI =
+LIB_PAPI =
+
+INC_DCCRG = -I./submodules/dccrg
+INC_FSGRID = -I./submodules/fsgrid
+
+LIB_PROFILE = -I $(LIBRARY_PREFIX)/include $(LIBRARY_PREFIX)/lib/libphiprof.a
+INC_PROFILE =
+INC_TOPO =
+
+INC_EIGEN = -isystem ./submodules/eigen/
+INC_VECTORCLASS = -isystem ./submodules/vectorclass/ -isystem ./submodules/vectorclass-addon/vector3d/

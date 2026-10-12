@@ -996,6 +996,11 @@ bool _readBlockData(
          success=_readBlockDataCompressionOCTREE<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
          break;
 #endif
+      case P::ASTERIX_COMPRESSION_METHODS::HERMITE:
+         // Hermite spectra are bulk-output only and are never valid restart VDF data.
+         logFile<<"(RESTART): ERROR: file contains Hermite spectra instead of velocity blocks, cannot restart from it"<<endl<<write;
+         success=false;
+         break;
       default:
          abort();
    }

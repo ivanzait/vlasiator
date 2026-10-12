@@ -243,6 +243,8 @@ std::size_t P::mlp_fourier_order;
 std::size_t P::mlp_max_epochs;
 Real P::mlp_tollerance;
 Real P::octree_tolerance;
+int P::hermite_max_order;
+Real P::hermite_tolerance;
 std::string P::mlpLayer;
 Real P::compression_interval;
 bool P::doCompress=false;
@@ -579,6 +581,8 @@ bool P::addParameters() {
    RP::add("Asterix.mlp_layers", string("Hidden layer architecture (neuron count per hidden layer) for MLP"),P::mlp_arch);
    RP::add<Real>("Asterix.tol", string("MLP Compression reconstruction tolerance"),P::mlp_tollerance,1e-4);
    RP::add<Real>("Asterix.octree_tolerance", string("OCTREE Compression reconstruction tolerance"),P::octree_tolerance,1e-3);
+   RP::add<int>("Asterix.hermite_max_order", string("HERMITE output: maximum number of Hermite shells (>= 3)"),P::hermite_max_order,26);
+   RP::add<Real>("Asterix.hermite_tolerance", string("HERMITE output: target Parseval relative L2 error of the adaptive transform (> 0)"),P::hermite_tolerance,0.1);
    RP::add<std::size_t>("Asterix.max_epochs", string("Max MLP epochs"),P::mlp_max_epochs,50);
    RP::add<std::size_t>("Asterix.fourier_order", string("Fourier Feature Order"),P::mlp_fourier_order,32);
    RP::add<Real>("Asterix.interval", string("Compression interval in seconds [Deprecated]"),P::compression_interval,1.0);
@@ -955,6 +959,26 @@ void Parameters::getParameters() {
          P::doCompress=true;
       }
       #endif
+      if (P::method_str == "HERMITE") {
+         P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::HERMITE;
+         P::doCompress=true;
+         if (P::hermite_max_order < 3 || !(P::hermite_tolerance > 0.0)) {
+            if (myRank==MASTER_RANK) {
+               std::cerr << "ERROR: Asterix.hermite_max_order must be >= 3 (got " << P::hermite_max_order
+                         << ") and Asterix.hermite_tolerance must be > 0 (got " << P::hermite_tolerance << ")." << std::endl;
+            }
+            MPI_Barrier(MPI_COMM_WORLD);
+            MPI_Abort(MPI_COMM_WORLD,-1);
+         }
+         // HERMITE is a bulk-output-only format: restarts and recovers must stay lossless dense VDFs.
+         if (P::systemWriteRestartCompressed || P::systemWriteRecoveryCompressed) {
+            if (myRank==MASTER_RANK) {
+               std::cerr << "WARNING: Asterix method HERMITE is bulk-output only; restart/recovery files will be written uncompressed." << std::endl;
+            }
+            P::systemWriteRestartCompressed = false;
+            P::systemWriteRecoveryCompressed = false;
+         }
+      }
    }else{
       P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::NONE;
       P::doCompress=false;

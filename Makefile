@@ -206,7 +206,7 @@ DEPS_COMMON = common.h common.cpp definitions.h mpiconversion.h logger.h object_
 OBJS = 	version.o memoryallocation.o memory_report.o backgroundfield.o quadr.o dipole.o linedipole.o vectordipole.o constantfield.o integratefunction.o \
 	datareducer.o datareductionoperator.o dro_populations.o \
 	donotcompute.o ionosphere.o copysphere.o outflow.o inflow.o setmaxwellian.o\
-	compression_tools.o\
+	compression_tools.o hermite.o hermite_cell.o \
 	fieldtracing.o compression.o arch_moments.o \
 	sysboundary.o sysboundarycondition.o particle_species.o\
 	project.o projectTriAxisSearch.o read_gaussian_population.o\

@@ -260,6 +260,7 @@ struct Parameters {
            OCTREE,
            MLP,
            MLP_MULTI,
+           HERMITE, /* Bulk-output only: adaptive Hermite spectra instead of VDF blocks. Never used in restarts. */
    };
    static std::string mlpLayer;
    static std::vector<std::size_t> mlp_arch; /* Hidden Layers in fMLP*/
@@ -269,6 +270,8 @@ struct Parameters {
    static Real mlp_tollerance;
    static std::size_t max_vdfs_per_nn;
    static Real octree_tolerance;
+   static int hermite_max_order;      /* Maximum number of Hermite shells in HERMITE output */
+   static Real hermite_tolerance;     /* Target Parseval relative L2 error delta of the adaptive Hermite transform */
    static bool doCompress;
    static std::string method_str;
    static ASTERIX_COMPRESSION_METHODS vdf_compression_method;

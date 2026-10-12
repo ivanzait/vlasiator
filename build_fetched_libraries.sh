@@ -189,7 +189,7 @@ cd ../../
 #Build OCTREE for ASTERIX
 echo "################# Building OCTREE #######################"
 cd tucker-octree/
-sed -i s/"ColMajor"/"RowMajor"/g toctree.cpp
+sed -i.bak s/"ColMajor"/"RowMajor"/g toctree.cpp
 rm -rf build
 mkdir build
 cd build

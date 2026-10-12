@@ -25,3 +25,7 @@ submodules/
 run_*/
 !run_tests.sh
 profile/
+library-build
+.DS_Store
+vdf_compression/tools/
+vdf_compression/tests/
