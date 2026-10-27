@@ -272,6 +272,7 @@ struct Parameters {
    static Real octree_tolerance;
    static int hermite_max_order;      /* Maximum number of Hermite shells in HERMITE output */
    static Real hermite_tolerance;     /* Target Parseval relative L2 error delta of the adaptive Hermite transform */
+   static bool hermite_roundtrip;     /* Replace every VDF by its Hermite round trip (transform + hybrid reconstruction) every timestep */
    static bool doCompress;
    static std::string method_str;
    static ASTERIX_COMPRESSION_METHODS vdf_compression_method;

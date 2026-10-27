@@ -68,6 +68,7 @@
 #include "fieldsolver/gridGlue.hpp"
 #include "fieldsolver/derivatives.hpp"
 #include "vdf_compression/compression.h"
+#include "vdf_compression/hermite_cell.h"
 
 #include <signal.h>
 
@@ -1359,6 +1360,31 @@ int simulate(int argn,char* args[]) {
 	      pitchAngleDiffusion(mpiGrid,popID);
          }
          diffusionTimer.stop(computedCells, "Cells");
+      }
+
+      // Experiment: Hermite round trip of every VDF (forward transform and hybrid reconstruction, no moment rescaling).
+      // Done before the post-acceleration boundary conditions and before the moments below are computed, so that the
+      // fields see the round-tripped VDFs.
+      if (P::hermite_roundtrip) {
+         phiprof::Timer roundtripTimer {"Hermite round trip"};
+         std::vector<spatial_cell::SpatialCell*> rtCells;
+         rtCells.reserve(cells.size());
+         for (const CellID cell : cells) rtCells.push_back(mpiGrid[cell]);
+         for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+            const ASTERIX::RoundTripStats rt = ASTERIX::hermite_roundtrip(cells, rtCells, popID, P::hermite_max_order, P::hermite_tolerance);
+            // The velocity spaces changed: apply the sparsity rule and update the ghost copies on the other ranks.
+            adjustVelocityBlocks(mpiGrid, cells, true, popID);
+            uint64_t localBlocks = 0, blocksAfter = 0;
+            for (const CellID cell : cells) localBlocks += mpiGrid[cell]->get_number_of_velocity_blocks(popID);
+            MPI_Reduce(&localBlocks, &blocksAfter, 1, MPI_UINT64_T, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+            if (myRank == MASTER_RANK) {
+               const double n = std::max<uint64_t>(rt.cells, 1);
+               logFile << "(HERMITE-RT) tstep " << P::tstep << " t " << P::t << " " << getObjectWrapper().particleSpecies[popID].name
+                       << ": " << rt.cells << " cells, mean order " << rt.sum_order / n << ", blocks " << rt.blocks_before
+                       << " -> " << blocksAfter << " (all cells, after the block adjustment)" << endl << write;
+            }
+         }
+         roundtripTimer.stop(computedCells, "Cells");
       }
 
       if (P::propagateVlasovTranslation || P::propagateVlasovAcceleration ) {

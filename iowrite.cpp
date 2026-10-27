@@ -811,24 +811,19 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
  * File layout (all arrays have attributes mesh="SpatialGrid", name=<population>):
  *  - CELLSWITHHERMITE uint64  x1  ids of the cells that were successfully transformed
  *  - HERMITEORDER     uint32  x1  number of Hermite shells kept per listed cell
- *  - HERMITEMETA      float32 x11 per listed cell, columns in this order:
- *                                 ux, uy, uz, vth, delta, vxmin, vxmax, vymin, vymax, vzmin, vzmax
+ *  - HERMITEMETA      float32 x5  per listed cell, columns in this order: ux, uy, uz, vth, delta
  *                                 ux..uz [m/s] bulk velocity; vth = sqrt((Pxx+Pyy+Pzz)/(3n)) [m/s] the single isotropic
- *                                 thermal velocity; delta the Parseval delta at the kept order. v?min/v?max: bounding
- *                                 box of the velocity blocks present in the cell in GLOBAL velocity-mesh CELL indices,
- *                                 min inclusive, max EXCLUSIVE (block aligned, multiples of WID), stored as float32
- *                                 (exact up to 2^24). Global cell i has its centre at meshMinLimits + (i + 0.5) *
- *                                 cellSize, the same as MESH_NODE_CRDS[i] + 0.5 * dv. The reconstruction is meant to be
- *                                 zeroed outside this box.
+ *                                 thermal velocity of f; delta the Parseval delta at the kept order (L2 error of the
+ *                                 sqrt(f) series).
  *  - HERMITECOEFFS    float32 x1  ragged: n_coeffs(order) = order(order+1)(order+2)/6 coefficients per listed cell,
  *                                 in the canonical order of vdf_compression/hermite.h (shell s ascending; l, m
- *                                 ascending; n=s-l-m); attributes version="2", basis="orthonormal_hermite_functions",
+ *                                 ascending; n=s-l-m); the series is that of g = sqrt(f) on the basis scaled to
+ *                                 sqrt(2) * vth, so f = g^2 >= 0; attributes basis="orthonormal_hermite_functions",
  *                                 ordering="shell_l_m_n", scaling="linear"
- * Format history: version 1 = HERMITEMETA with 5 columns (ux..delta, no bounding box); version 2 = HERMITEMETA with
- * 11 columns as above. (A short-lived intermediate layout had a separate HERMITEBBOX array; it is not produced any more.)
  * plus the velocity mesh definition (MESH_BBOX, MESH_NODE_CRDS_X/Y/Z of mesh <population>) so a
  * reader can recover the cell-centre velocity coordinates. No BLOCKIDS / BLOCKVARIABLE /
- * CELLSWITHBLOCKS / BLOCKSPERCELL are written. Cells for which the transform fails are omitted. */
+ * CELLSWITHBLOCKS / BLOCKSPERCELL are written. Every simulated cell is transformed; a cell for which the transform fails
+ * makes the write fail (DO_NOT_COMPUTE cells have no velocity space and are omitted). */
 bool writeVelocityDistributionDataHermite(const uint popID, Writer& vlsvWriter,
                                           dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                           const std::vector<CellID>& cells, MPI_Comm comm) {
@@ -852,7 +847,15 @@ bool writeVelocityDistributionDataHermite(const uint popID, Writer& vlsvWriter,
    }
    transformTimer.stop();
 
-   // Gather the per-cell arrays of the successfully transformed cells (in cell order); coefficients stay in `spectra`.
+   // Every simulated cell must be compressed; DO_NOT_COMPUTE cells have no velocity space and are left out.
+   for (size_t i = 0; i < cells.size(); ++i) {
+      if (!spectra[i] && mpiGrid[cells[i]]->sysBoundaryFlag != sysboundarytype::DO_NOT_COMPUTE) {
+         logFile << "(MAIN) writeGrid: ERROR: Hermite transform failed for cell " << cells[i] << endl << write;
+         success = false;
+      }
+   }
+
+   // Gather the per-cell arrays of the transformed cells (in cell order); coefficients stay in `spectra`.
    std::vector<uint64_t> ids;
    std::vector<uint32_t> orders;
    std::vector<float> meta;
@@ -865,11 +868,6 @@ bool writeVelocityDistributionDataHermite(const uint popID, Writer& vlsvWriter,
       ids.push_back(cells[i]);
       orders.push_back(static_cast<uint32_t>(cell.order_used));
       meta.insert(meta.end(), cell.meta.begin(), cell.meta.end());
-      // meta[5 + 2d] = v?min, meta[6 + 2d] = v?max (exclusive): block aligned and non-empty.
-      for (int d = 0; d < 3; ++d) {
-         const float lo = cell.meta[5 + 2 * d], hi = cell.meta[6 + 2 * d];
-         assert(std::fmod(lo, static_cast<float>(WID)) == 0.f && std::fmod(hi, static_cast<float>(WID)) == 0.f && lo < hi);
-      }
       kept.push_back(&cell);
       orderSum += cell.order_used;
       deltaSum += cell.meta[4];
@@ -882,13 +880,12 @@ bool writeVelocityDistributionDataHermite(const uint popID, Writer& vlsvWriter,
    const unsigned int vectorSize = 1;
    if (!vlsvWriter.writeArray("CELLSWITHHERMITE", attribs, ids.size(), vectorSize, ids.data())) success = false;
    if (!vlsvWriter.writeArray("HERMITEORDER", attribs, orders.size(), vectorSize, orders.data())) success = false;
-   if (!vlsvWriter.writeArray("HERMITEMETA", attribs, ids.size(), 11u, meta.data())) success = false;
+   if (!vlsvWriter.writeArray("HERMITEMETA", attribs, ids.size(), 5u, meta.data())) success = false;
    if (success == false) logFile << "(MAIN) writeGrid: ERROR failed to write Hermite cell arrays to file!" << endl << writeVerbose;
 
    // Ragged coefficient array, written like BLOCKVARIABLE.
    {
       map<string, string> coeffAttribs = attribs;
-      coeffAttribs["version"] = "2";
       coeffAttribs["basis"] = "orthonormal_hermite_functions";
       coeffAttribs["ordering"] = "shell_l_m_n";
       coeffAttribs["scaling"] = "linear";

@@ -245,6 +245,7 @@ Real P::mlp_tollerance;
 Real P::octree_tolerance;
 int P::hermite_max_order;
 Real P::hermite_tolerance;
+bool P::hermite_roundtrip;
 std::string P::mlpLayer;
 Real P::compression_interval;
 bool P::doCompress=false;
@@ -583,6 +584,7 @@ bool P::addParameters() {
    RP::add<Real>("Asterix.octree_tolerance", string("OCTREE Compression reconstruction tolerance"),P::octree_tolerance,1e-3);
    RP::add<int>("Asterix.hermite_max_order", string("HERMITE output: maximum number of Hermite shells (>= 3)"),P::hermite_max_order,26);
    RP::add<Real>("Asterix.hermite_tolerance", string("HERMITE output: target Parseval relative L2 error of the adaptive transform (> 0)"),P::hermite_tolerance,0.1);
+   RP::add<bool>("Asterix.hermite_roundtrip", string("Experiment: after the Vlasov acceleration of every step replace each VDF by its Hermite round trip: forward transform and hybrid reconstruction (Cesaro-mean sparsity contour and block mask, plain series in the core, Cesaro values in the halo); moments are not rescaled. Uses Asterix.hermite_max_order and Asterix.hermite_tolerance. Not supported in GPU builds."),P::hermite_roundtrip,false);
    RP::add<std::size_t>("Asterix.max_epochs", string("Max MLP epochs"),P::mlp_max_epochs,50);
    RP::add<std::size_t>("Asterix.fourier_order", string("Fourier Feature Order"),P::mlp_fourier_order,32);
    RP::add<Real>("Asterix.interval", string("Compression interval in seconds [Deprecated]"),P::compression_interval,1.0);
@@ -982,6 +984,23 @@ void Parameters::getParameters() {
    }else{
       P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::NONE;
       P::doCompress=false;
+   }
+
+   if (P::hermite_roundtrip) {
+      #ifdef USE_GPU
+      const bool gpuOk = false;
+      #else
+      const bool gpuOk = true;
+      #endif
+      if (P::hermite_max_order < 3 || !(P::hermite_tolerance > 0.0) || !gpuOk) {
+         if (myRank==MASTER_RANK) {
+            std::cerr << "ERROR: Asterix.hermite_roundtrip needs Asterix.hermite_max_order >= 3 (got " << P::hermite_max_order
+                      << ") and Asterix.hermite_tolerance > 0 (got " << P::hermite_tolerance
+                      << "); it is not supported in GPU builds." << std::endl;
+         }
+         MPI_Barrier(MPI_COMM_WORLD);
+         MPI_Abort(MPI_COMM_WORLD,-1);
+      }
    }
 
    if ((P::systemWriteDistributionCompressed || P::systemWriteRecoveryCompressed || P::systemWriteRestartCompressed )&&

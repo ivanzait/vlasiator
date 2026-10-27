@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <utility>
 
 namespace ASTERIX {
 namespace hermite {
@@ -52,6 +53,9 @@ std::size_t n_cells(const Grid& g) {
 }
 
 bool valid(const Grid& g) { return g.shape[0] > 0 && g.shape[1] > 0 && g.shape[2] > 0; }
+
+// Scale of the basis functions of the sqrt(f) series: sqrt(2) times the thermal velocity of f.
+double basis_scale(double vth) { return std::numbers::sqrt2 * vth; }
 
 Grid cubic_grid(double vlim, int vlen) {
    const double dv = 2.0 * vlim / vlen;
@@ -119,23 +123,28 @@ double thermal_velocity(const std::vector<double>& cube, const Grid& grid, const
    return std::sqrt((pxx / sum + pyy / sum + pzz / sum) / 3.0);
 }
 
-Spectrum adaptive_transform(const std::vector<double>& cube, const Grid& grid, double vth,
+Spectrum adaptive_transform(const std::vector<double>& cube_f, const Grid& grid, double vth,
                             const std::array<double, 3>& u, int max_order, double tolerance) {
    Spectrum out;
-   if (max_order <= 0 || !valid(grid) || cube.size() != n_cells(grid)) return out;
+   if (max_order <= 0 || !valid(grid) || cube_f.size() != n_cells(grid)) return out;
    if (!(vth > 0.0)) return out;
 
    const std::size_t nx = grid.shape[0], ny = grid.shape[1], nz = grid.shape[2];
    const double dv3 = grid.dv[0] * grid.dv[1] * grid.dv[2];
 
+   // Transform g = sqrt(max(f, 0)) (tiny negative values of f are clipped) on the basis scaled to sqrt(2) vth.
+   std::vector<double> cube(cube_f.size());
+   for (std::size_t i = 0; i < cube_f.size(); ++i) cube[i] = std::sqrt(std::max(cube_f[i], 0.0));
+   const double vth_basis = basis_scale(vth);
+
    double P_total = 0.0;
-   for (double f : cube) P_total += f * f;
+   for (double g : cube) P_total += g * g;
    P_total *= dv3;
    if (!(P_total > 0.0)) return out; // empty VDF: nothing to transform
 
-   const auto Hx = hermite_basis(grid_axis(grid, 0), max_order, vth, u[0]);
-   const auto Hy = hermite_basis(grid_axis(grid, 1), max_order, vth, u[1]);
-   const auto Hz = hermite_basis(grid_axis(grid, 2), max_order, vth, u[2]);
+   const auto Hx = hermite_basis(grid_axis(grid, 0), max_order, vth_basis, u[0]);
+   const auto Hy = hermite_basis(grid_axis(grid, 1), max_order, vth_basis, u[1]);
+   const auto Hz = hermite_basis(grid_axis(grid, 2), max_order, vth_basis, u[2]);
 
    // Separable contraction with lazily filled caches:
    //   Px[n][z,y]  = sum_x cube[z,y,x] Hx[n,x]      O(N^3), once per n
@@ -200,17 +209,15 @@ Spectrum adaptive_transform(const std::vector<double>& cube, const Grid& grid, d
    return out;
 }
 
-std::vector<double> reconstruct(const Spectrum& spectrum, const Grid& grid, double vth,
-                                const std::array<double, 3>& u) {
-   if (!valid(grid)) return {};
+namespace {
+
+// Series sum_{l,m,n} c[l,m,n] Hz_l(z) Hy_m(y) Hx_n(x) on a grid from canonical coefficients and precomputed bases
+// (Hx[n * nx + ix] etc.). Not squared, whatever the expansion.
+std::vector<double> series_cube(const std::vector<double>& coeffs, int order, const Grid& grid,
+                                const std::vector<double>& Hx, const std::vector<double>& Hy,
+                                const std::vector<double>& Hz) {
    const std::size_t nx = grid.shape[0], ny = grid.shape[1], nz = grid.shape[2];
    std::vector<double> out(nx * ny * nz, 0.0);
-   const int order = spectrum.order_used;
-   if (order <= 0 || spectrum.coeffs.size() != n_coeffs(order) || !(vth > 0.0)) return out;
-
-   const auto Hx = hermite_basis(grid_axis(grid, 0), order, vth, u[0]);
-   const auto Hy = hermite_basis(grid_axis(grid, 1), order, vth, u[1]);
-   const auto Hz = hermite_basis(grid_axis(grid, 2), order, vth, u[2]);
    const std::size_t O = order;
 
    // Dense h[l][m][n] from the canonical coefficient order
@@ -218,7 +225,7 @@ std::vector<double> reconstruct(const Spectrum& spectrum, const Grid& grid, doub
    std::size_t k = 0;
    for (int s = 0; s < order; ++s)
       for (int l = 0; l <= s; ++l)
-         for (int m = 0; m <= s - l; ++m) h[(l * O + m) * O + (s - l - m)] = spectrum.coeffs[k++];
+         for (int m = 0; m <= s - l; ++m) h[(l * O + m) * O + (s - l - m)] = coeffs[k++];
 
    // Pass 1: T1[l,m,x] = sum_n h[l,m,n] Hx[n,x]
    std::vector<double> T1(O * O * nx, 0.0);
@@ -244,6 +251,51 @@ std::vector<double> reconstruct(const Spectrum& spectrum, const Grid& grid, doub
          const double* src = &T2[l * ny * nx];
          for (std::size_t i = 0; i < ny * nx; ++i) dst[i] += w * src[i];
       }
+   return out;
+}
+
+} // namespace
+
+std::vector<double> reconstruct(const Spectrum& spectrum, const Grid& grid, double vth,
+                                const std::array<double, 3>& u) {
+   if (!valid(grid)) return {};
+   auto sets = reconstruct_sets(spectrum, std::vector<std::vector<double>>{spectrum.coeffs}, grid, vth, u);
+   return std::move(sets[0]);
+}
+
+std::vector<double> cesaro_coeffs(const std::vector<double>& coeffs, int order) {
+   if (order <= 0 || coeffs.size() != n_coeffs(order)) return coeffs;
+   std::vector<double> out(coeffs);
+   std::size_t k = 0;
+   for (int s = 0; s < order; ++s) {
+      const double sigma = static_cast<double>(order - s) / order;
+      for (int l = 0; l <= s; ++l)
+         for (int m = 0; m <= s - l; ++m) out[k++] *= sigma;
+   }
+   return out;
+}
+
+std::vector<std::vector<double>> reconstruct_sets(const Spectrum& base, const std::vector<std::vector<double>>& coeff_sets,
+                                                  const Grid& grid, double vth, const std::array<double, 3>& u) {
+   std::vector<std::vector<double>> out(coeff_sets.size());
+   if (!valid(grid)) return out;
+   const int order = base.order_used;
+   const bool ok = order > 0 && vth > 0.0;
+   const double scale = basis_scale(vth);
+   std::vector<double> Hx, Hy, Hz;
+   if (ok) {
+      Hx = hermite_basis(grid_axis(grid, 0), order, scale, u[0]);
+      Hy = hermite_basis(grid_axis(grid, 1), order, scale, u[1]);
+      Hz = hermite_basis(grid_axis(grid, 2), order, scale, u[2]);
+   }
+   for (std::size_t k = 0; k < coeff_sets.size(); ++k) {
+      if (!ok || coeff_sets[k].size() != n_coeffs(order)) {
+         out[k].assign(n_cells(grid), 0.0);
+         continue;
+      }
+      out[k] = series_cube(coeff_sets[k], order, grid, Hx, Hy, Hz);
+      for (double& v : out[k]) v *= v; // f = g^2
+   }
    return out;
 }
 
